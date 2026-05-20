@@ -140,6 +140,22 @@ async function storageSet(key, val, shared = false) {
 async function loadSavedCards() { return storageGet("saved-cards", []); }
 async function saveSavedCards(cards) { return storageSet("saved-cards", cards); }
 
+// Robust JSON extraction — handles responses with extra commentary, code fences, etc.
+function extractJSON(text) {
+  // Remove code fences first
+  let cleaned = text.replace(/```json|```/g, "").trim();
+  // Try parsing directly
+  try { return JSON.parse(cleaned); } catch {}
+  // Find the first { and matching last }
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = cleaned.slice(firstBrace, lastBrace + 1);
+    try { return JSON.parse(candidate); } catch {}
+  }
+  throw new Error("Could not extract valid JSON from response: " + text.slice(0, 200));
+}
+
 // ─── API CALLS ───────────────────────────────────────────────────────
 async function checkIfNeedsClarification(problem) {
   const r = await fetch("/api/anthropic", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -147,7 +163,8 @@ async function checkIfNeedsClarification(problem) {
       system: `Clarifying-question assistant. Decide if problem is specific enough for cross-domain pattern matching. Be LENIENT — full sentence with clear challenge = enough. Max 2 questions, deeply contextual. JSON only: {"needs_clarification":false} or {"needs_clarification":true,"questions":["Q1?","Q2?"]}`,
       messages: [{ role: "user", content: problem }] }) });
   if (!r.ok) throw new Error(`API ${r.status}`);
-  return JSON.parse((await r.json()).content.filter(b => b.type === "text").map(b => b.text).join("").replace(/```json|```/g, "").trim());
+  const txt = (await r.json()).content.filter(b => b.type === "text").map(b => b.text).join("");
+  return extractJSON(txt);
 }
 
 async function analyzeWithAI(problem, clarifications) {
@@ -164,7 +181,8 @@ the_pattern: 1-2 sentences. the_analogy: 1 sentence. the_steal: 1 provocative se
 JSON only: {"fracture_summary":"...","sub_problems":["..."],"cards":[{"sub_problem":"...","domain":"id","domain_label":"...","source_title":"...","the_pattern":"...","the_analogy":"...","the_steal":"...","precedent":"...","go_deeper_prompt":"..."}]}`,
       messages: [{ role: "user", content: problem + (clarifications?.length ? `\n\nCONTEXT:\n${clarifications.join("\n")}` : "") }] }) });
   if (!r.ok) throw new Error(`API ${r.status}`);
-  const p = JSON.parse((await r.json()).content.filter(b => b.type === "text").map(b => b.text).join("").replace(/```json|```/g, "").trim());
+  const txt = (await r.json()).content.filter(b => b.type === "text").map(b => b.text).join("");
+  const p = extractJSON(txt);
   recordShownSources(p.cards); return p;
 }
 
