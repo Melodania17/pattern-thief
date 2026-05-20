@@ -142,8 +142,8 @@ async function saveSavedCards(cards) { return storageSet("saved-cards", cards); 
 
 // ─── API CALLS ───────────────────────────────────────────────────────
 async function checkIfNeedsClarification(problem) {
-  const r = await fetch("/api/anthropic", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 600,
+  const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 600,
       system: `Clarifying-question assistant. Decide if problem is specific enough for cross-domain pattern matching. Be LENIENT — full sentence with clear challenge = enough. Max 2 questions, deeply contextual. JSON only: {"needs_clarification":false} or {"needs_clarification":true,"questions":["Q1?","Q2?"]}`,
       messages: [{ role: "user", content: problem }] }) });
   if (!r.ok) throw new Error(`API ${r.status}`);
@@ -152,8 +152,8 @@ async function checkIfNeedsClarification(problem) {
 
 async function analyzeWithAI(problem, clarifications) {
   const { full, mustInclude } = getRandomDomainPriority();
-  const r = await fetch("/api/anthropic", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 4000,
+  const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 4000,
       system: `Cross-domain pattern recognition engine. Find surprising analogies from unexpected fields. Match the user's SPECIFIC framing.
 1. FRACTURE: 2-3 sub-problems. Mirror their words.
 2. EXAMINE+ANALOGIZE across 25 domains (randomized): ${full}
@@ -169,8 +169,8 @@ JSON only: {"fracture_summary":"...","sub_problems":["..."],"cards":[{"sub_probl
 }
 
 async function exploreDeeper(card, originalProblem) {
-  const r = await fetch("/api/anthropic", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1500,
+  const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1500,
       system: `Expert analyst. Explore how a cross-domain pattern applies to a specific problem. Structure: 1. PATTERN IN DEPTH (2-3 sent) 2. HOW IT MAPS (2-3 sent specific) 3. THREE IDEAS (2 sent each, escalating) 4. WATCH OUT (1-2 sent). Under 300 words. Direct.`,
       messages: [{ role: "user", content: `PROBLEM: ${originalProblem}\nPATTERN: ${card.domain_label} — ${card.source_title}\n${card.the_pattern}\nConnection: ${card.the_analogy}\nSteal: ${card.the_steal}\n\nApply this to my situation.` }] }) });
   if (!r.ok) throw new Error(`API ${r.status}`);
