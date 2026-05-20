@@ -170,15 +170,33 @@ async function checkIfNeedsClarification(problem) {
 async function analyzeWithAI(problem, clarifications) {
   const { full, mustInclude } = getRandomDomainPriority();
   const r = await fetch("/api/anthropic", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 4000,
-      system: `Cross-domain pattern recognition engine. Find surprising analogies from unexpected fields. Match the user's SPECIFIC framing.
-1. FRACTURE: 2-3 sub-problems. Mirror their words.
-2. EXAMINE+ANALOGIZE across 25 domains (randomized): ${full}
-MUST include 2+ from: ${mustInclude.join(", ")}.
-3-7 cards, each different domain. Avoid Disney/Apple/Toyota/honeybees/Ferrari/Amazon/Netflix/Sun Tzu.${getAvoidList()}
-All sources real/verifiable. Plain English, no jargon.
-the_pattern: 1-2 sentences. the_analogy: 1 sentence. the_steal: 1 provocative sentence. precedent: real or null. go_deeper_prompt: AI prompt.
-JSON only: {"fracture_summary":"...","sub_problems":["..."],"cards":[{"sub_problem":"...","domain":"id","domain_label":"...","source_title":"...","the_pattern":"...","the_analogy":"...","the_steal":"...","precedent":"...","go_deeper_prompt":"..."}]}`,
+    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 2500,
+      system: `Cross-domain pattern recognition engine. Your job is NOT to generate many cards — your job is to find the FEW BEST cards that will give the user a genuine breakthrough.
+
+QUALITY BAR — every card MUST meet ALL of these criteria:
+1. DISTANT DOMAIN: the source must come from a field genuinely far from the user's problem area. If they're asking a business question, the source should NOT be from business/management/marketing — it should be from nature, mythology, sport, art, ritual, etc. The further the domain, the better.
+2. STRUCTURAL FIT: the underlying mechanism of the pattern must directly map to a specific sub-problem the user has. Not loosely thematic — actually structurally similar. If you can't articulate WHY the structure transfers, drop the card.
+3. ACTIONABLE STEAL: the_steal must propose something the user could concretely try this week. No abstract insights. No "consider whether..." or "think about how..." — name a specific action or design choice.
+4. REAL & VERIFIABLE: only use sources you can confidently confirm exist. No fabrications. If unsure, drop the card. Set precedent to null if no real-world business adaptation is known.
+
+PROCESS:
+1. FRACTURE: identify 2-3 core sub-problems. Use the user's exact words where possible.
+2. For each sub-problem, search across these 25 domains (randomized priority): ${full}
+3. MUST include 2+ cards from: ${mustInclude.join(", ")}.
+4. Generate ONLY 3-4 cards total. Quality beats quantity. If only 3 strong cards exist, return 3.
+
+Avoid overused examples: Disney, Apple, Toyota/Kaizen, honeybees/ant colonies, Ferrari pit stops, Amazon, Netflix, Sun Tzu.${getAvoidList()}
+
+Field requirements (be concise):
+- source_title: specific (named species, myth, principle, event, work — not generic categories)
+- the_pattern: 1-2 sentences explaining the mechanism in plain English, no jargon
+- the_analogy: 1 sentence tying it to the user's specific framing (use their words)
+- the_steal: 1 provocative, concrete sentence proposing what the user could try
+- precedent: a real example of someone applying this in business, or null
+- go_deeper_prompt: 1-sentence AI prompt for deeper exploration
+
+JSON only (no commentary before or after):
+{"fracture_summary":"...","sub_problems":["..."],"cards":[{"sub_problem":"...","domain":"id","domain_label":"...","source_title":"...","the_pattern":"...","the_analogy":"...","the_steal":"...","precedent":"... or null","go_deeper_prompt":"..."}]}`,
       messages: [{ role: "user", content: problem + (clarifications?.length ? `\n\nCONTEXT:\n${clarifications.join("\n")}` : "") }] }) });
   if (!r.ok) throw new Error(`API ${r.status}`);
   const txt = (await r.json()).content.filter(b => b.type === "text").map(b => b.text).join("");
