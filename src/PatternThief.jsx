@@ -42,34 +42,29 @@ const FREE_LIMIT = 5;
 // Smart chips — starter prompts with teaser patterns
 const STARTER_CHIPS = [
   {
-    label: "Customers don't convert",
-    prompt: "Our customers love our product during the trial but most don't convert to paid. We've tried discounts, extended trials, and onboarding emails but nothing moves the needle.",
-    teaser: { icon: "🌿", domain: "Nature & biomimicry", source: "Pitcher plant traps", color: "#2d6a4f", hint: "Pitcher plants don't chase prey — they create a one-way descent so smooth that insects don't realize they've committed until escape is impossible. What does irreversible commitment look like in your funnel?" }
-  },
-  {
     label: "Standing out in a crowded market",
     prompt: "We're in a crowded market where every competitor says the same things. Our product is genuinely different but customers can't tell us apart from anyone else.",
     teaser: { icon: "🎩", domain: "Magic & illusion", source: "Magicians' misdirection", color: "#4527a0", hint: "Great illusionists don't hide what they're doing — they make you look so intensely at one thing that the real move happens unnoticed elsewhere. What's your industry obsessed with that lets you redirect attention?" }
   },
   {
-    label: "Team isn't shipping fast enough",
+    label: "Why my team isn't shipping",
     prompt: "Our team is talented but ships way slower than I'd expect. Lots of meetings, lots of planning, but actual output is sluggish. Hiring more hasn't helped.",
     teaser: { icon: "🍳", domain: "Cooking & culinary arts", source: "Restaurant mise en place", color: "#e65100", hint: "Top kitchens spend hours prepping before service so the actual cooking is fast and rhythmic. What 'prep work' is your team skipping that forces them to improvise mid-execution?" }
   },
   {
-    label: "Pricing feels wrong",
-    prompt: "Our pricing feels off. We're not sure if we're charging too little, too much, or pricing the wrong things. Customers don't push back, but conversion is weaker than it should be.",
-    teaser: { icon: "🏛️", domain: "History & warfare", source: "Trojan horse strategy", color: "#6d4c41", hint: "The Trojans didn't fall to a stronger army — they fell to something they actively wanted to bring inside their walls. What might customers actively invite at the right price that they'd resist at any price?" }
+    label: "What free will actually means",
+    prompt: "I've been thinking about free will. Does it really exist, or are we just running deterministic programs we mistake for choice? I'd love to explore this from unexpected angles.",
+    teaser: { icon: "🕉️", domain: "Philosophy & religion", source: "The Daoist concept of wu wei", color: "#8a6d3b", hint: "Wu wei means 'effortless action' — acting in such harmony with circumstance that the line between choosing and being chosen by the moment dissolves. What if free will isn't a yes/no question, but a question of how aligned your action is with the present?" }
   },
   {
-    label: "Hiring the right people",
-    prompt: "We keep hiring people who look great on paper and bomb in practice. Our process is rigorous but we're missing something about how to identify real fit.",
-    teaser: { icon: "🎬", domain: "Film, theater & storytelling", source: "Casting directors' chemistry reads", color: "#b71c1c", hint: "Casting directors know individual talent is necessary but not sufficient — they test chemistry between actors before locking anyone in. What's your equivalent of a chemistry read?" }
+    label: "Why some friendships fade and others deepen",
+    prompt: "Some of my friendships have lasted decades and grown deeper, while others I expected to last have quietly faded. I'd like to understand what's actually happening underneath this.",
+    teaser: { icon: "🌿", domain: "Nature & biomimicry", source: "Old-growth forest root systems", color: "#2d6a4f", hint: "Old trees in a forest share nutrients through fungal networks — but only with trees that contribute back. The relationships that thrive are the ones with active reciprocity, not just proximity. Which of your friendships are still exchanging nutrients?" }
   },
   {
-    label: "Launching something new",
-    prompt: "We're launching a new product/feature and trying to figure out the right rollout approach. We're torn between a big splashy launch and a quiet beta.",
-    teaser: { icon: "💃", domain: "Dance & performance", source: "Choreographer's reveal", color: "#e91e63", hint: "Great choreographers don't show the full piece in act one — they reveal motifs slowly so the climax has somewhere to go. What if your launch arc had three acts instead of one?" }
+    label: "How to find meaning in tedious work",
+    prompt: "My work is necessary but often feels tedious. I'd like to find genuine meaning in it without resorting to motivational quotes or fake reframing.",
+    teaser: { icon: "🕯️", domain: "Ritual & ceremony", source: "Japanese tea ceremony (chadō)", color: "#827717", hint: "The Japanese tea ceremony elevates the act of making tea — a tedious daily chore — into a contemplative art by paying extraordinary attention to the smallest gestures. What would happen if you treated the dull parts of your work as if every motion mattered?" }
   },
 ];
 
@@ -103,19 +98,23 @@ function getAvoidList() {
 }
 
 function recordShownSources(cards) {
-  if (!cards) return;
-  cards.forEach(c => {
-    if (c.source_title) {
-      if (!userShownSources.includes(c.source_title)) userShownSources.push(c.source_title);
-      if (!globalShownSources.includes(c.source_title)) globalShownSources.push(c.source_title);
-    }
-  });
-  // Cap history sizes (keep newest)
-  if (userShownSources.length > MAX_USER_HISTORY) userShownSources = userShownSources.slice(-MAX_USER_HISTORY);
-  if (globalShownSources.length > MAX_GLOBAL_HISTORY) globalShownSources = globalShownSources.slice(-MAX_GLOBAL_HISTORY);
-  // Persist both
-  storageSet("user-shown-sources", userShownSources);
-  storageSet("global-shown-sources", globalShownSources, true); // true = shared across users
+  if (!cards || !Array.isArray(cards)) return;
+  try {
+    cards.forEach(c => {
+      if (c && c.source_title) {
+        if (!userShownSources.includes(c.source_title)) userShownSources.push(c.source_title);
+        if (!globalShownSources.includes(c.source_title)) globalShownSources.push(c.source_title);
+      }
+    });
+    // Cap history sizes (keep newest)
+    if (userShownSources.length > MAX_USER_HISTORY) userShownSources = userShownSources.slice(-MAX_USER_HISTORY);
+    if (globalShownSources.length > MAX_GLOBAL_HISTORY) globalShownSources = globalShownSources.slice(-MAX_GLOBAL_HISTORY);
+    // Persist both — fire and forget, never let storage errors break the flow
+    storageSet("user-shown-sources", userShownSources).catch(() => {});
+    storageSet("global-shown-sources", globalShownSources, true).catch(() => {});
+  } catch (e) {
+    console.warn("recordShownSources failed (non-fatal):", e);
+  }
 }
 
 // ─── STORAGE ─────────────────────────────────────────────────────────
@@ -369,17 +368,21 @@ function InfoModal({ onClose }) {
         <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.06)", border: "none", borderRadius: "8px", width: "32px", height: "32px", color: "#fff", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         <h2 style={{ fontFamily: "'Lato'", fontSize: "28px", fontWeight: 900, color: "#f1f1f1", marginBottom: "20px" }}>How Pattern Thief Works</h2>
         <div style={{ fontFamily: "'Lato'", fontSize: "15px", color: "rgba(255,255,255,0.7)", lineHeight: 1.75 }}>
-          <p style={{ marginBottom: "20px" }}>
+          <p style={{ marginBottom: "16px" }}>
             This tool is not designed to give you answers. It is designed to give you unexpected connections and starting points. Pattern Thief scans{" "}
-            <span style={{ fontWeight: 700, color: "#d4a843", cursor: "pointer", borderBottom: "1px dashed rgba(212,168,67,0.5)", position: "relative", display: "inline-block" }}
-              onMouseEnter={() => setShowDomains(true)} onMouseLeave={() => setShowDomains(false)} onClick={e => { e.stopPropagation(); setShowDomains(!showDomains); }}>
-              25 domains
-              {showDomains && <div style={{ position: "absolute", bottom: "calc(100% + 10px)", left: "50%", transform: "translateX(-50%)", background: "#1e1e28", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "14px", padding: "18px", width: "340px", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", zIndex: 10 }}>
-                <div style={{ fontFamily: "'Lato'", fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", color: "#d4a843", marginBottom: "10px" }}>Domains Searched</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>{DOMAINS.map(d => <span key={d.id} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", background: `${d.color}25`, color: d.color, border: `1px solid ${d.color}40`, fontFamily: "'Lato'", fontWeight: 700, whiteSpace: "nowrap" }}>{d.icon} {d.label}</span>)}</div>
-              </div>}
-            </span>{" "}to look for unique structural patterns that closely parallel your specific challenge.
+            <button onClick={() => setShowDomains(!showDomains)} style={{ background: "none", border: "none", padding: 0, fontFamily: "'Lato'", fontSize: "15px", fontWeight: 700, color: "#d4a843", cursor: "pointer", borderBottom: "1px dashed rgba(212,168,67,0.5)" }}>
+              25 domains {showDomains ? "▲" : "▼"}
+            </button>
+            {" "}to look for unique structural patterns that closely parallel your specific challenge.
           </p>
+          {showDomains && (
+            <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(212,168,67,0.15)", borderRadius: "12px", padding: "16px", marginBottom: "20px", animation: "fadeUp 0.3s ease" }}>
+              <div style={{ fontFamily: "'Lato'", fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", color: "#d4a843", marginBottom: "10px" }}>Domains Searched</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                {DOMAINS.map(d => <span key={d.id} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", background: `${d.color}25`, color: d.color, border: `1px solid ${d.color}40`, fontFamily: "'Lato'", fontWeight: 700, whiteSpace: "nowrap" }}>{d.icon} {d.label}</span>)}
+              </div>
+            </div>
+          )}
           <h3 style={{ fontFamily: "'Lato'", fontSize: "20px", fontWeight: 900, color: "#f1f1f1", marginBottom: "10px" }}>What Pattern Thief Is Best For</h3>
           <ul style={{ marginBottom: "18px", paddingLeft: "18px", fontSize: "14px" }}>
             {["Stuck problems — conventional solutions have failed","Differentiation — when everyone looks alike","Human behavior puzzles — logic doesn't match behavior","Ambiguous challenges — no obvious playbook","Reframing moments — thinking about this wrong","Brand & storytelling — where metaphor matters","Innovation briefs — when different beats optimized"].map(t => <li key={t} style={{ marginBottom: "6px" }}>{t}</li>)}
@@ -393,9 +396,28 @@ function InfoModal({ onClose }) {
 }
 
 // ─── FLOATING ICONS ──────────────────────────────────────────────────
-function FloatingIcons() {
-  const ps=[{top:"8%",left:"5%",a:"float1",d:"18s",s:"28px",o:0.15},{top:"15%",right:"8%",a:"float2",d:"22s",s:"32px",o:0.12},{top:"35%",left:"3%",a:"float3",d:"20s",s:"24px",o:0.1},{top:"55%",right:"4%",a:"float1",d:"25s",s:"26px",o:0.13},{top:"70%",left:"7%",a:"float2",d:"19s",s:"30px",o:0.11},{top:"25%",left:"12%",a:"float3",d:"23s",s:"22px",o:0.08},{top:"45%",right:"10%",a:"float1",d:"21s",s:"28px",o:0.1},{top:"80%",right:"12%",a:"float2",d:"17s",s:"24px",o:0.12},{top:"10%",left:"25%",a:"float3",d:"24s",s:"20px",o:0.07},{top:"60%",left:"18%",a:"float1",d:"20s",s:"22px",o:0.09},{top:"40%",right:"20%",a:"float2",d:"26s",s:"26px",o:0.08},{top:"85%",left:"22%",a:"float3",d:"18s",s:"24px",o:0.1}];
-  return <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none"}}>{DOMAINS.slice(0,12).map((d,i)=>{const p=ps[i];return <span key={d.id} style={{position:"absolute",top:p.top,left:p.left,right:p.right,fontSize:p.s,opacity:p.o,animation:`${p.a} ${p.d} ease-in-out infinite`,filter:"blur(0.5px)"}}>{d.icon}</span>;})}</div>;
+function CubistBackground() {
+  return (
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", borderRadius: "inherit" }}>
+      {/* Cubist image — subtle but visible */}
+      <div style={{
+        position: "absolute",
+        inset: 0,
+        backgroundImage: "url('/cubist-bg.jpg')",
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+        opacity: 0.22,
+        filter: "saturate(0.9) contrast(1.05)",
+      }} />
+      {/* Dark gradient overlay for text readability — darker at top/bottom, lighter center to let image show */}
+      <div style={{
+        position: "absolute",
+        inset: 0,
+        background: "linear-gradient(180deg, rgba(12,12,17,0.85) 0%, rgba(12,12,17,0.45) 50%, rgba(12,12,17,0.85) 100%)",
+      }} />
+    </div>
+  );
 }
 
 function FEARBar({ activeStep }) {
@@ -409,7 +431,7 @@ function ShareModal({ card, onClose }) {
   const d = DOMAINS.find(dm => dm.id === card.domain) || DOMAINS[8];
 
   const formatSnippet = () => {
-    return `${d.icon} ${card.domain_label.toUpperCase()}\n\n${card.source_title}\n\n${card.the_pattern}\n\n→ THE CONNECTION\n${card.the_analogy}\n\n⚡ THE STEAL\n${card.the_steal}\n\n— via Pattern Thief (patternthief.app)`;
+    return `${d.icon} ${card.domain_label.toUpperCase()}\n\n${card.source_title}\n\n${card.the_pattern}\n\n→ THE CONNECTION\n${card.the_analogy}\n\n⚡ THE STEAL\n${card.the_steal}\n\n— via Pattern Thief (PatternThief.com)`;
   };
 
   const handleCopySnippet = () => {
@@ -507,6 +529,16 @@ function ShareModal({ card, onClose }) {
       ctx.font = "700 20px Lato, Arial, sans-serif";
       ctx.fillText(domainText, 100, 232);
 
+      // Large domain emoji on the right — a subtle visual signal of the source domain
+      // Drawn at lower opacity so it doesn't overpower the text
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.font = "240px Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillText(d.icon, W - 60, 280);
+      ctx.restore();
+      ctx.textAlign = "left"; // reset for subsequent text
+
       // Source title (large, bold)
       let y = 320;
       const sourceLines = wrapText(card.source_title, W - 160, "900 50px Lato, Arial, sans-serif");
@@ -579,7 +611,7 @@ function ShareModal({ card, onClose }) {
       // Footer text
       ctx.fillStyle = "rgba(255,255,255,0.4)";
       ctx.font = "400 18px Lato, Arial, sans-serif";
-      ctx.fillText("via patternthief.app", 80, H - 60);
+      ctx.fillText("via PatternThief.com", 80, H - 60);
 
       ctx.fillStyle = "rgba(212,168,67,0.7)";
       ctx.font = "700 16px Lato, Arial, sans-serif";
@@ -813,9 +845,18 @@ export default function PatternThief() {
     setError(null); setLoadingText("Reviewing your problem"); setStep(2);
     try {
       const check = await checkIfNeedsClarification(problem);
-      if (check.needs_clarification && check.questions?.length) { setClarifyQ(check.questions); setClarifyA(new Array(check.questions.length).fill("")); setStep(1.5); }
-      else { await runAnalysis([]); }
-    } catch { setError("Something went wrong. Please try again."); setStep(1); }
+      if (check && check.needs_clarification && check.questions?.length) {
+        setClarifyQ(check.questions);
+        setClarifyA(new Array(check.questions.length).fill(""));
+        setStep(1.5);
+      } else {
+        await runAnalysis([]);
+      }
+    } catch (err) {
+      console.warn("Clarification check failed, proceeding to analysis:", err);
+      // If clarification fails for any reason, just proceed to analysis
+      await runAnalysis([]);
+    }
   };
 
   const runAnalysis = async (cl) => {
@@ -823,12 +864,20 @@ export default function PatternThief() {
     setLoadingText(null); setStep(2); setResults(null); setCardsVisible(false);
     try {
       const data = await analyzeWithAI(problem, cl);
+      if (!data || !data.cards || !Array.isArray(data.cards) || data.cards.length === 0) {
+        throw new Error("Response missing cards");
+      }
       const newCount = searchesUsed + 1;
-      setSearchesUsed(newCount); await storageSet("searches-used", newCount);
+      setSearchesUsed(newCount);
+      storageSet("searches-used", newCount).catch(() => {});
       setResults(data); setStep(3);
       setTimeout(() => setCardsVisible(true), 300);
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
-    } catch { setError("Something went wrong. Please try again."); setStep(1); }
+    } catch (err) {
+      console.error("Analysis failed:", err);
+      setError("Something went wrong. Please try again. (" + (err?.message || "Unknown error") + ")");
+      setStep(1);
+    }
   };
 
   const handleApplyCoupon = async (code, bonus) => {
@@ -855,9 +904,25 @@ export default function PatternThief() {
         {/* LANDING */}
         {step === 1 && (
           <div style={{ position: "relative", minHeight: "80vh", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            <FloatingIcons />
-            {/* TOP-LEFT: searches counter (only shows when getting low) */}
-            <div style={{ position: "absolute", top: 0, left: 0 }}>
+            <CubistBackground />
+            {/* TOP-LEFT: How It Works button */}
+            <div style={{ position: "absolute", top: 0, left: 0, zIndex: 5 }}>
+              <button onClick={() => setShowInfo(true)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.55)"; }}>
+                How It Works
+              </button>
+            </div>
+            {/* TOP-RIGHT: Saved cards button */}
+            <div style={{ position: "absolute", top: 0, right: 0, zIndex: 5, display: "flex", gap: "8px", alignItems: "center" }}>
+              <button onClick={() => setStep(4)} style={{ background: savedCards.length > 0 ? "rgba(212,168,67,0.08)" : "rgba(255,255,255,0.05)", border: `1px solid ${savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.12)"}`, borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.55)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.12)"; e.currentTarget.style.color = savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.55)"; }}>
+                🔖 Saved Cards{savedCards.length > 0 && ` (${savedCards.length})`}
+              </button>
+            </div>
+            {/* CENTERED BELOW BUTTONS: searches counter (only shows when getting low) */}
+            <div style={{ position: "absolute", top: "44px", left: 0, right: 0, textAlign: "center", zIndex: 4 }}>
               {!isPro && (searchesAllowed - searchesUsed) === 2 && (
                 <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 400, color: "rgba(255,255,255,0.3)", letterSpacing: "0.3px" }}>
                   2 searches left
@@ -873,21 +938,10 @@ export default function PatternThief() {
               )}
               {isPro && <span style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "#d4a843", background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.3)", borderRadius: "4px", padding: "3px 8px", letterSpacing: "1px", textTransform: "uppercase" }}>Pro</span>}
             </div>
-            {/* TOP-RIGHT: Saved cards + info */}
-            <div style={{ position: "absolute", top: 0, right: 0, display: "flex", gap: "8px", alignItems: "center" }}>
-              <button onClick={() => setStep(4)} style={{ background: savedCards.length > 0 ? "rgba(212,168,67,0.08)" : "rgba(255,255,255,0.05)", border: `1px solid ${savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.1)"}`, borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.4)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.1)"; e.currentTarget.style.color = savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.4)"; }}>
-                🔖 Saved Cards{savedCards.length > 0 && ` (${savedCards.length})`}
-              </button>
-              <button onClick={() => setShowInfo(true)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "50%", width: "36px", height: "36px", color: "rgba(255,255,255,0.4)", fontSize: "17px", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Lato'", fontStyle: "italic", transition: "all 0.2s" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "rgba(255,255,255,0.4)"; }}>i</button>
-            </div>
             <div style={{ position: "relative", zIndex: 2, animation: "fadeUp 0.8s ease" }}>
               <h1 style={{ fontFamily: "'Lato'", fontSize: "clamp(42px, 8vw, 72px)", fontWeight: 900, lineHeight: 1.05, marginBottom: "20px", textAlign: "center", color: "#f5f5f5" }}>Pattern Thief</h1>
-              <p style={{ fontFamily: "'Lato'", fontSize: "17px", fontWeight: 300, color: "rgba(255,255,255,0.5)", textAlign: "center", maxWidth: "520px", margin: "0 auto 36px", lineHeight: 1.65 }}>
-                Have a tough problem? Steal a solution from somewhere unexpected.
+              <p style={{ fontFamily: "'Lato'", fontSize: "17px", fontWeight: 300, color: "rgba(255,255,255,0.5)", textAlign: "center", maxWidth: "560px", margin: "0 auto 36px", lineHeight: 1.65 }}>
+                For the curious, the stuck, and the slightly bored. Find something the algorithm wouldn't show you.
               </p>
               <div style={{ width: "60px", height: "2px", background: "linear-gradient(90deg, #e8614d, #d4a843, #2a9d8f)", margin: "0 auto 28px" }} />
 
@@ -1000,8 +1054,8 @@ export default function PatternThief() {
                 )}
                 {isPro && <span style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "#d4a843", background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.3)", borderRadius: "4px", padding: "3px 8px", letterSpacing: "1px", textTransform: "uppercase" }}>Pro</span>}
               </div>
-              <button onClick={() => setShowInfo(true)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "50%", width: "32px", height: "32px", color: "rgba(255,255,255,0.4)", fontSize: "15px", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Lato'", fontStyle: "italic" }}
-                onMouseEnter={e => { e.currentTarget.style.color = "#d4a843"; }} onMouseLeave={e => { e.currentTarget.style.color = "rgba(255,255,255,0.4)"; }}>i</button>
+              <button onClick={() => setShowInfo(true)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: "rgba(255,255,255,0.55)" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.55)"; }}>How It Works</button>
             </div>
             <FEARBar activeStep={3} />
             <div style={{ background: "rgba(232,97,77,0.06)", border: "1px solid rgba(232,97,77,0.15)", borderRadius: "14px", padding: "22px", marginBottom: "16px", marginTop: "14px" }}>
@@ -1027,6 +1081,21 @@ export default function PatternThief() {
 
         {/* SAVED CARDS */}
         {step === 4 && <SavedCardsView savedCards={savedCards} onGoDeeper={setDeeperCard} onRemove={handleRemoveCard} onClose={() => setStep(1)} onShare={setShareCard} canGoDeeper={canSearch} onLockedClick={() => setShowUpgrade(true)} />}
+
+        {/* FOOTER */}
+        <footer style={{ marginTop: "80px", paddingTop: "32px", borderTop: "1px solid rgba(255,255,255,0.06)", textAlign: "center" }}>
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+            <div style={{ width: "20px", height: "1px", background: "rgba(232,97,77,0.4)" }} />
+            <div style={{ width: "20px", height: "1px", background: "rgba(212,168,67,0.4)" }} />
+            <div style={{ width: "20px", height: "1px", background: "rgba(42,157,143,0.4)" }} />
+          </div>
+          <p style={{ fontFamily: "'Lato'", fontSize: "12px", color: "rgba(255,255,255,0.4)", marginBottom: "8px", lineHeight: 1.6 }}>
+            Pattern Thief · Created by Prashant Anilkumar · © 2026 · All rights reserved
+          </p>
+          <p style={{ fontFamily: "'Lato'", fontSize: "11px", color: "rgba(255,255,255,0.28)", fontStyle: "italic", lineHeight: 1.6, maxWidth: "480px", margin: "0 auto" }}>
+            Pattern Thief uses AI to generate creative analogies. AI can make mistakes — always verify the patterns and apply your own judgment before acting on them.
+          </p>
+        </footer>
       </div>
     </div>
   );
