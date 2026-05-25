@@ -57,9 +57,9 @@ const STARTER_CHIPS = [
     teaser: { icon: "🕉️", domain: "Philosophy & religion", source: "The Daoist concept of wu wei", color: "#8a6d3b", hint: "Wu wei means 'effortless action' — acting in such harmony with circumstance that the line between choosing and being chosen by the moment dissolves. What if free will isn't a yes/no question, but a question of how aligned your action is with the present?" }
   },
   {
-    label: "Why some friendships fade and others deepen",
-    prompt: "Some of my friendships have lasted decades and grown deeper, while others I expected to last have quietly faded. I'd like to understand what's actually happening underneath this.",
-    teaser: { icon: "🌿", domain: "Nature & biomimicry", source: "Old-growth forest root systems", color: "#2d6a4f", hint: "Old trees in a forest share nutrients through fungal networks — but only with trees that contribute back. The relationships that thrive are the ones with active reciprocity, not just proximity. Which of your friendships are still exchanging nutrients?" }
+    label: "Fitting AI into our workflow",
+    prompt: "We're trying to figure out how AI should fit into our team's workflow. Everyone's adopting it differently, some are overusing it, some are avoiding it. We need a coherent approach.",
+    teaser: { icon: "🌾", domain: "Gardening & agriculture", source: "Companion planting", color: "#558b2f", hint: "In companion planting, certain crops thrive when grown next to specific others — corn supports beans, basil protects tomatoes. The wrong pairing kills both. Which AI tools should sit beside which human roles, and which combinations would quietly poison your team's work?" }
   },
   {
     label: "How to find meaning in tedious work",
@@ -180,6 +180,10 @@ QUALITY BAR — every card MUST meet ALL of these criteria:
 
 PROCESS:
 1. FRACTURE: identify 2-3 core sub-problems. Use the user's exact words where possible.
+
+VOICE — IMPORTANT:
+- Write the fracture_summary and the_analogy in SECOND PERSON, addressing the user directly. Use "you," "your," "you've," "you asked about..." — never "the user" or "they" or third person. Example: "You asked about retaining engineers — your real challenge is that growth means promotion, but they want creative authority." NOT: "The user is asking about engineer retention. They are facing..."
+- Mirror their words and phrasing back to them.
 2. For each sub-problem, search across these 25 domains (randomized priority): ${full}
 3. MUST include 2+ cards from: ${mustInclude.join(", ")}.
 4. Generate ONLY 3-4 cards total. Quality beats quantity. If only 3 strong cards exist, return 3.
@@ -396,28 +400,9 @@ function InfoModal({ onClose }) {
 }
 
 // ─── FLOATING ICONS ──────────────────────────────────────────────────
-function CubistBackground() {
-  return (
-    <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", borderRadius: "inherit" }}>
-      {/* Cubist image — subtle but visible */}
-      <div style={{
-        position: "absolute",
-        inset: 0,
-        backgroundImage: "url('/cubist-bg.jpg')",
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        backgroundRepeat: "no-repeat",
-        opacity: 0.22,
-        filter: "saturate(0.9) contrast(1.05)",
-      }} />
-      {/* Dark gradient overlay for text readability — darker at top/bottom, lighter center to let image show */}
-      <div style={{
-        position: "absolute",
-        inset: 0,
-        background: "linear-gradient(180deg, rgba(12,12,17,0.85) 0%, rgba(12,12,17,0.45) 50%, rgba(12,12,17,0.85) 100%)",
-      }} />
-    </div>
-  );
+function FloatingIcons() {
+  const ps=[{top:"8%",left:"5%",a:"float1",d:"18s",s:"28px",o:0.15},{top:"15%",right:"8%",a:"float2",d:"22s",s:"32px",o:0.12},{top:"35%",left:"3%",a:"float3",d:"20s",s:"24px",o:0.1},{top:"55%",right:"4%",a:"float1",d:"25s",s:"26px",o:0.13},{top:"70%",left:"7%",a:"float2",d:"19s",s:"30px",o:0.11},{top:"25%",left:"12%",a:"float3",d:"23s",s:"22px",o:0.08},{top:"45%",right:"10%",a:"float1",d:"21s",s:"28px",o:0.1},{top:"80%",right:"12%",a:"float2",d:"17s",s:"24px",o:0.12},{top:"10%",left:"25%",a:"float3",d:"24s",s:"20px",o:0.07},{top:"60%",left:"18%",a:"float1",d:"20s",s:"22px",o:0.09},{top:"40%",right:"20%",a:"float2",d:"26s",s:"26px",o:0.08},{top:"85%",left:"22%",a:"float3",d:"18s",s:"24px",o:0.1}];
+  return <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none"}}>{DOMAINS.slice(0,12).map((d,i)=>{const p=ps[i];return <span key={d.id} style={{position:"absolute",top:p.top,left:p.left,right:p.right,fontSize:p.s,opacity:p.o,animation:`${p.a} ${p.d} ease-in-out infinite`,filter:"blur(0.5px)"}}>{d.icon}</span>;})}</div>;
 }
 
 function FEARBar({ activeStep }) {
@@ -904,7 +889,7 @@ export default function PatternThief() {
         {/* LANDING */}
         {step === 1 && (
           <div style={{ position: "relative", minHeight: "80vh", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            <CubistBackground />
+            <FloatingIcons />
             {/* TOP-LEFT: How It Works button */}
             <div style={{ position: "absolute", top: 0, left: 0, zIndex: 5 }}>
               <button onClick={() => setShowInfo(true)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}
