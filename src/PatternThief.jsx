@@ -972,69 +972,70 @@ export default function PatternThief() {
         {step === 1 && (
           <div style={{ position: "relative", minHeight: "80vh", display: "flex", flexDirection: "column", justifyContent: "center" }}>
             <FloatingIcons />
-            {/* TOP-LEFT: How It Works button */}
-            <div style={{ position: "absolute", top: 0, left: 0, zIndex: 5 }}>
-              <button onClick={() => setShowInfo(true)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}
+            {/* TOP BAR: How It Works + Saved + Upgrade + Account/Sign-in */}
+            <div style={{ position: "relative", zIndex: 5, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px", marginBottom: "12px", flexWrap: "wrap" }}>
+              {/* LEFT: How It Works */}
+              <button onClick={() => setShowInfo(true)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s", whiteSpace: "nowrap" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.55)"; }}>
                 How It Works
               </button>
-            </div>
-            {/* TOP-RIGHT: Saved cards + Account/Sign-in + Upgrade */}
-            <div style={{ position: "absolute", top: 0, right: 0, zIndex: 5, display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-              <button onClick={() => setStep(4)} style={{ background: savedCards.length > 0 ? "rgba(212,168,67,0.08)" : "rgba(255,255,255,0.05)", border: `1px solid ${savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.12)"}`, borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.55)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.12)"; e.currentTarget.style.color = savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.55)"; }}>
-                🔖 Saved Cards{savedCards.length > 0 && ` (${savedCards.length})`}
-              </button>
-              {!isProEffective && (
-                <button onClick={() => setShowUpgrade(true)} style={{ background: "linear-gradient(135deg, rgba(212,168,67,0.2), rgba(232,97,77,0.15))", border: "1px solid rgba(212,168,67,0.5)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "#d4a843", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}
-                  onMouseEnter={e => { e.currentTarget.style.background = "linear-gradient(135deg, rgba(212,168,67,0.3), rgba(232,97,77,0.22))"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "linear-gradient(135deg, rgba(212,168,67,0.2), rgba(232,97,77,0.15))"; }}>
-                  ✨ Upgrade
-                </button>
-              )}
-              {isAuthenticated ? (
-                <button onClick={() => setShowAccount(true)} style={{ background: isProEffective ? "rgba(212,168,67,0.12)" : "rgba(255,255,255,0.05)", border: `1px solid ${isProEffective ? "rgba(212,168,67,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: isProEffective ? "#d4a843" : "rgba(255,255,255,0.55)" }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = isProEffective ? "rgba(212,168,67,0.4)" : "rgba(255,255,255,0.12)"; }}>
-                  {isProEffective ? "👤 PRO" : "👤 Account"}
-                </button>
-              ) : (
-                <button onClick={() => handleRequestAuth("default")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)" }}
+
+              {/* RIGHT: Saved + Upgrade + Account */}
+              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <button onClick={() => setStep(4)} title="Saved cards" style={{ background: savedCards.length > 0 ? "rgba(212,168,67,0.08)" : "rgba(255,255,255,0.05)", border: `1px solid ${savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.12)"}`, borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.55)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s", whiteSpace: "nowrap" }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.55)"; }}>
-                  Sign in
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.12)"; e.currentTarget.style.color = savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.55)"; }}>
+                  <span>🔖</span><span style={{ display: "inline" }} className="pt-label-saved">Saved{savedCards.length > 0 && ` (${savedCards.length})`}</span>
                 </button>
-              )}
+                {!isProEffective && (
+                  <button onClick={() => setShowUpgrade(true)} style={{ background: "linear-gradient(135deg, rgba(212,168,67,0.2), rgba(232,97,77,0.15))", border: "1px solid rgba(212,168,67,0.5)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "#d4a843", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s", whiteSpace: "nowrap" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "linear-gradient(135deg, rgba(212,168,67,0.3), rgba(232,97,77,0.22))"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "linear-gradient(135deg, rgba(212,168,67,0.2), rgba(232,97,77,0.15))"; }}>
+                    <span>✨</span> Upgrade
+                  </button>
+                )}
+                {isAuthenticated ? (
+                  <button onClick={() => setShowAccount(true)} title="Account" style={{ background: isProEffective ? "rgba(212,168,67,0.12)" : "rgba(255,255,255,0.05)", border: `1px solid ${isProEffective ? "rgba(212,168,67,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: isProEffective ? "#d4a843" : "rgba(255,255,255,0.55)", whiteSpace: "nowrap" }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = isProEffective ? "rgba(212,168,67,0.4)" : "rgba(255,255,255,0.12)"; }}>
+                    {isProEffective ? "👤 PRO" : "👤 Account"}
+                  </button>
+                ) : (
+                  <button onClick={() => handleRequestAuth("default")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)", whiteSpace: "nowrap" }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.55)"; }}>
+                    Sign in
+                  </button>
+                )}
+              </div>
             </div>
-            {/* CENTERED BELOW BUTTONS: searches counter (only shows when getting low) */}
-            <div style={{ position: "absolute", top: "44px", left: 0, right: 0, textAlign: "center", zIndex: 4 }}>
-              {!isPro && (searchesAllowed - searchesUsed) === 2 && (
-                <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 400, color: "rgba(255,255,255,0.3)", letterSpacing: "0.3px" }}>
+            {/* Searches counter (only shows when getting low) */}
+            <div style={{ textAlign: "center", marginBottom: "8px", zIndex: 4, minHeight: "16px" }}>
+              {!isProEffective && (searchesAllowed - searchesUsed) === 2 && (
+                <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 400, color: "rgba(255,255,255,0.4)", letterSpacing: "0.3px" }}>
                   2 searches left
                 </span>
               )}
-              {!isPro && (searchesAllowed - searchesUsed) === 1 && (
-                <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 400, color: "rgba(232,97,77,0.7)", letterSpacing: "0.3px" }}>
+              {!isProEffective && (searchesAllowed - searchesUsed) === 1 && (
+                <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 400, color: "rgba(232,97,77,0.85)", letterSpacing: "0.3px" }}>
                   1 search left — make it count
                 </span>
               )}
-              {!isPro && (searchesAllowed - searchesUsed) <= 0 && (
+              {!isProEffective && (searchesAllowed - searchesUsed) <= 0 && (
                 <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: "#e8614d" }}>No searches left</span>
               )}
-              {isPro && <span style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "#d4a843", background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.3)", borderRadius: "4px", padding: "3px 8px", letterSpacing: "1px", textTransform: "uppercase" }}>Pro</span>}
             </div>
             <div style={{ position: "relative", zIndex: 2, animation: "fadeUp 0.8s ease" }}>
               <h1 style={{ fontFamily: "'Lato'", fontSize: "clamp(42px, 8vw, 72px)", fontWeight: 900, lineHeight: 1.05, marginBottom: "20px", textAlign: "center", color: "#f5f5f5" }}>Pattern Thief</h1>
-              <p style={{ fontFamily: "'Lato'", fontSize: "17px", fontWeight: 300, color: "rgba(255,255,255,0.5)", textAlign: "center", maxWidth: "560px", margin: "0 auto 36px", lineHeight: 1.65 }}>
-                For the curious, the stuck, and the slightly bored. Find something the algorithm wouldn't show you.
+              <p style={{ fontFamily: "'Lato'", fontSize: "17px", fontWeight: 300, color: "rgba(255,255,255,0.65)", textAlign: "center", maxWidth: "560px", margin: "0 auto 36px", lineHeight: 1.65 }}>
+                For the curious, the stuck, and the slightly bored. Discover and steal something the algorithm wouldn't show you.
               </p>
               <div style={{ width: "60px", height: "2px", background: "linear-gradient(90deg, #e8614d, #d4a843, #2a9d8f)", margin: "0 auto 28px" }} />
 
               {/* Smart chips */}
               <div style={{ textAlign: "center", marginBottom: "10px" }}>
-                <span style={{ fontFamily: "'Lato'", fontSize: "10px", color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700 }}>
+                <span style={{ fontFamily: "'Lato'", fontSize: "10px", color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700 }}>
                   Try one of these or describe your own
                 </span>
               </div>
@@ -1089,7 +1090,7 @@ export default function PatternThief() {
                 </div>
                 {error && <p style={{ color: "#e8614d", fontSize: "14px", marginBottom: "12px" }}>{error}</p>}
                 <button onClick={handleSubmit} disabled={!problem.trim()}
-                  style={{ width: "100%", padding: "16px", background: problem.trim() ? "linear-gradient(135deg, #e8614d, #d4a843)" : "rgba(255,255,255,0.04)", color: problem.trim() ? "#fff" : "rgba(255,255,255,0.2)", border: "none", borderRadius: "12px", fontFamily: "'Lato'", fontSize: "13px", fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", cursor: problem.trim() ? "pointer" : "default", boxShadow: problem.trim() ? "0 4px 20px rgba(232,97,77,0.25)" : "none" }}>
+                  style={{ width: "100%", padding: "16px", background: problem.trim() ? "linear-gradient(135deg, #e8614d, #d4a843)" : "rgba(255,255,255,0.08)", color: problem.trim() ? "#fff" : "rgba(255,255,255,0.5)", border: "none", borderRadius: "12px", fontFamily: "'Lato'", fontSize: "13px", fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", cursor: problem.trim() ? "pointer" : "default", boxShadow: problem.trim() ? "0 4px 20px rgba(232,97,77,0.25)" : "none" }}>
                   Find Hidden Patterns
                 </button>
               </div>
@@ -1189,7 +1190,7 @@ export default function PatternThief() {
             Pattern Thief · Created by Prashant Anilkumar · © 2026 · All rights reserved
           </p>
           <p style={{ fontFamily: "'Lato'", fontSize: "11.5px", color: "rgba(255,255,255,0.5)", marginBottom: "10px", lineHeight: 1.6 }}>
-            Reach out or direct feedback to: <a href="mailto:Prashant@BeyondSingular.com" style={{ color: "#d4a843", textDecoration: "none" }}>Prashant@BeyondSingular.com</a>
+            Reach out or send feedback to: <a href="mailto:Prashant@BeyondSingular.com" style={{ color: "#d4a843", textDecoration: "none" }}>Prashant@BeyondSingular.com</a>
           </p>
           <p style={{ fontFamily: "'Lato'", fontSize: "11px", color: "rgba(255,255,255,0.28)", fontStyle: "italic", lineHeight: 1.6, maxWidth: "480px", margin: "0 auto" }}>
             Pattern Thief uses AI to generate creative analogies. AI can make mistakes — always verify the patterns and apply your own judgment before acting on them.

@@ -33,7 +33,6 @@ export default async function handler(req, res) {
     }
 
     // Check if already Pro
-    const { data: existingPurchase } = await supabase
     const { data: existingPurchases } = await supabase
       .from("purchases")
       .select("id, status")
