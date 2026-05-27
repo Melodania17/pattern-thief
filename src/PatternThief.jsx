@@ -1,4 +1,10 @@
 import { useState, useEffect, useRef } from "react";
+import { supabase, getCurrentSession, onAuthChange, signOut as authSignOut, getAccessToken } from "./lib/supabase";
+import { getFingerprint } from "./lib/fingerprint";
+import { fetchUserStatus, fetchSavedCards, saveCardServer, deleteCardServer, bulkMigrateCards } from "./lib/api";
+import AuthModal from "./components/AuthModal";
+import UpgradeModal from "./components/UpgradeModal";
+import AccountPanel from "./components/AccountPanel";
 
 // ─── DOMAINS (25) ────────────────────────────────────────────────────
 const DOMAINS = [
@@ -156,11 +162,31 @@ function extractJSON(text) {
 }
 
 // ─── API CALLS ───────────────────────────────────────────────────────
+// Wraps fetch to /api/anthropic with auth token + browser fingerprint headers.
+// Backend uses these to enforce free tier limits and identify Pro users.
+async function authenticatedFetch(body) {
+  const headers = { "Content-Type": "application/json" };
+  try {
+    const token = await getAccessToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  } catch {}
+  try {
+    const fp = await getFingerprint();
+    if (fp) headers["X-Fingerprint"] = fp;
+  } catch {}
+  return fetch("/api/anthropic", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    credentials: "include",
+  });
+}
+
 async function checkIfNeedsClarification(problem) {
-  const r = await fetch("/api/anthropic", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 600,
+  const r = await authenticatedFetch({ model: "claude-sonnet-4-5", max_tokens: 600,
       system: `Clarifying-question assistant. Decide if problem is specific enough for cross-domain pattern matching. Be LENIENT — full sentence with clear challenge = enough. Max 2 questions, deeply contextual. JSON only: {"needs_clarification":false} or {"needs_clarification":true,"questions":["Q1?","Q2?"]}`,
-      messages: [{ role: "user", content: problem }] }) });
+      messages: [{ role: "user", content: problem }] });
+  if (r.status === 402) throw new Error("free_limit_reached");
   if (!r.ok) throw new Error(`API ${r.status}`);
   const txt = (await r.json()).content.filter(b => b.type === "text").map(b => b.text).join("");
   return extractJSON(txt);
@@ -168,8 +194,7 @@ async function checkIfNeedsClarification(problem) {
 
 async function analyzeWithAI(problem, clarifications) {
   const { full, mustInclude } = getRandomDomainPriority();
-  const r = await fetch("/api/anthropic", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 2500,
+  const r = await authenticatedFetch({ model: "claude-sonnet-4-5", max_tokens: 2500,
       system: `Cross-domain pattern recognition engine. Your job is NOT to generate many cards — your job is to find the FEW BEST cards that will give the user a genuine breakthrough.
 
 QUALITY BAR — every card MUST meet ALL of these criteria:
@@ -200,18 +225,21 @@ Field requirements (be concise):
 
 JSON only (no commentary before or after):
 {"fracture_summary":"...","sub_problems":["..."],"cards":[{"sub_problem":"...","domain":"id","domain_label":"...","source_title":"...","the_pattern":"...","the_analogy":"...","the_steal":"...","precedent":"... or null","go_deeper_prompt":"..."}]}`,
-      messages: [{ role: "user", content: problem + (clarifications?.length ? `\n\nCONTEXT:\n${clarifications.join("\n")}` : "") }] }) });
+      messages: [{ role: "user", content: problem + (clarifications?.length ? `\n\nCONTEXT:\n${clarifications.join("\n")}` : "") }] });
+  if (r.status === 402) throw new Error("free_limit_reached");
   if (!r.ok) throw new Error(`API ${r.status}`);
-  const txt = (await r.json()).content.filter(b => b.type === "text").map(b => b.text).join("");
+  const data = await r.json();
+  const txt = data.content.filter(b => b.type === "text").map(b => b.text).join("");
   const p = extractJSON(txt);
+  if (data._is_preview) p._is_preview = true;
   recordShownSources(p.cards); return p;
 }
 
 async function exploreDeeper(card, originalProblem) {
-  const r = await fetch("/api/anthropic", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1500,
+  const r = await authenticatedFetch({ model: "claude-sonnet-4-5", max_tokens: 1500,
       system: `Expert analyst. Explore how a cross-domain pattern applies to a specific problem. Structure: 1. PATTERN IN DEPTH (2-3 sent) 2. HOW IT MAPS (2-3 sent specific) 3. THREE IDEAS (2 sent each, escalating) 4. WATCH OUT (1-2 sent). Under 300 words. Direct.`,
-      messages: [{ role: "user", content: `PROBLEM: ${originalProblem}\nPATTERN: ${card.domain_label} — ${card.source_title}\n${card.the_pattern}\nConnection: ${card.the_analogy}\nSteal: ${card.the_steal}\n\nApply this to my situation.` }] }) });
+      messages: [{ role: "user", content: `PROBLEM: ${originalProblem}\nPATTERN: ${card.domain_label} — ${card.source_title}\n${card.the_pattern}\nConnection: ${card.the_analogy}\nSteal: ${card.the_steal}\n\nApply this to my situation.` }] });
+  if (r.status === 402) throw new Error("free_limit_reached");
   if (!r.ok) throw new Error(`API ${r.status}`);
   return (await r.json()).content.filter(b => b.type === "text").map(b => b.text).join("");
 }
@@ -287,81 +315,7 @@ function GoDeeperModal({ card, originalProblem, onClose }) {
   );
 }
 
-// ─── UPGRADE MODAL ───────────────────────────────────────────────────
-function UpgradeModal({ searchesUsed, searchesAllowed, onClose, onApplyCoupon }) {
-  const [coupon, setCoupon] = useState("");
-  const [couponError, setCouponError] = useState(null);
-  const [couponSuccess, setCouponSuccess] = useState(null);
-
-  const handleCoupon = () => {
-    const code = coupon.trim().toUpperCase();
-    const bonus = VALID_COUPONS[code];
-    if (bonus) {
-      onApplyCoupon(code, bonus);
-      setCouponSuccess(`Code applied! You've got ${bonus} more searches.`);
-      setCouponError(null);
-    } else {
-      setCouponError("Invalid code. Check the spelling and try again.");
-      setCouponSuccess(null);
-    }
-  };
-
-  return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: "#18181f", border: "1px solid rgba(212,168,67,0.2)", borderRadius: "20px", padding: "36px", maxWidth: "460px", width: "100%", position: "relative", animation: "fadeUp 0.4s ease" }}>
-        <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.06)", border: "none", borderRadius: "8px", width: "32px", height: "32px", color: "#fff", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-
-        {/* Usage bar */}
-        <div style={{ marginBottom: "24px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-            <span style={{ fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", letterSpacing: "1px" }}>Searches used</span>
-            <span style={{ fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "#e8614d" }}>{searchesUsed} / {searchesAllowed}</span>
-          </div>
-          <div style={{ height: "4px", background: "rgba(255,255,255,0.06)", borderRadius: "2px", overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${Math.min(100, (searchesUsed / searchesAllowed) * 100)}%`, background: "#e8614d", borderRadius: "2px", transition: "width 0.5s ease" }} />
-          </div>
-        </div>
-
-        <h2 style={{ fontFamily: "'Lato'", fontSize: "24px", fontWeight: 900, color: "#f5f5f5", marginBottom: "10px", lineHeight: 1.3 }}>
-          You've used your free searches
-        </h2>
-        <p style={{ fontFamily: "'Lato'", fontSize: "15px", color: "rgba(255,255,255,0.55)", lineHeight: 1.6, marginBottom: "24px" }}>
-          You clearly have interesting problems to solve. Your saved cards are still fully available — and you can still browse, share, and export them.
-        </p>
-
-        {/* Reach out section */}
-        <div style={{ background: "linear-gradient(135deg, rgba(212,168,67,0.1), rgba(42,157,143,0.08))", border: "1px solid rgba(212,168,67,0.25)", borderRadius: "14px", padding: "22px", marginBottom: "18px" }}>
-          <div style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "#d4a843", textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "10px" }}>
-            Want unlimited access?
-          </div>
-          <h3 style={{ fontFamily: "'Lato'", fontSize: "17px", fontWeight: 900, color: "#f5f5f5", marginBottom: "10px", lineHeight: 1.3 }}>
-            Pattern Thief Pro is launching soon
-          </h3>
-          <p style={{ fontFamily: "'Lato'", fontSize: "14px", color: "rgba(255,255,255,0.7)", lineHeight: 1.6, marginBottom: "14px" }}>
-            If you'd like early access — or want to explore using Pattern Thief with your team, in a workshop, or for an event — get in touch.
-          </p>
-          <a href="mailto:Prashant@beyondsingular.com?subject=Pattern Thief — Pro Access" style={{ display: "block", width: "100%", padding: "13px", background: "linear-gradient(135deg, #d4a843, #e8614d)", color: "#fff", border: "none", borderRadius: "10px", fontFamily: "'Lato'", fontSize: "13px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer", textAlign: "center", textDecoration: "none", boxSizing: "border-box", boxShadow: "0 4px 20px rgba(212,168,67,0.25)" }}>
-            Reach Out →
-          </a>
-        </div>
-
-        {/* Coupon section */}
-        <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "18px" }}>
-          <p style={{ fontFamily: "'Lato'", fontSize: "13px", color: "rgba(255,255,255,0.4)", marginBottom: "10px" }}>Workshop attendee? Have a code?</p>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <input value={coupon} onChange={e => setCoupon(e.target.value)} placeholder="Enter code"
-              style={{ flex: 1, background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", padding: "10px 14px", color: "#f1f1f1", fontFamily: "'Lato'", fontSize: "14px", outline: "none", boxSizing: "border-box" }}
-              onFocus={e => (e.target.style.borderColor = "rgba(212,168,67,0.4)")} onBlur={e => (e.target.style.borderColor = "rgba(255,255,255,0.1)")}
-              onKeyDown={e => e.key === "Enter" && handleCoupon()} />
-            <button onClick={handleCoupon} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "8px", padding: "10px 18px", color: "rgba(255,255,255,0.6)", fontFamily: "'Lato'", fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>Apply</button>
-          </div>
-          {couponError && <p style={{ fontFamily: "'Lato'", fontSize: "12px", color: "#e8614d", marginTop: "8px" }}>{couponError}</p>}
-          {couponSuccess && <p style={{ fontFamily: "'Lato'", fontSize: "12px", color: "#2a9d8f", marginTop: "8px" }}>{couponSuccess}</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
+// ─── UPGRADE MODAL is now imported from ./components/UpgradeModal ───
 
 // ─── INFO MODAL ──────────────────────────────────────────────────────
 function InfoModal({ onClose }) {
@@ -674,17 +628,17 @@ function PatternCard({ card, index, isVisible, onGoDeeper, onSave, isSaved, onRe
   const h = Math.max(flipped ? bH : fH, 260);
 
   return (
-    <div style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(24px)", transition: `opacity 0.5s ease ${index * 0.1}s, transform 0.5s ease ${index * 0.1}s`, perspective: "1200px", cursor: blurred ? "default" : "pointer", WebkitTapHighlightColor: "transparent", filter: blurred ? "blur(6px)" : "none", pointerEvents: blurred ? "none" : "auto", userSelect: blurred ? "none" : "auto" }}
+    <div style={{ opacity: isVisible ? 1 : 0, transform: isVisible ? "translateY(0)" : "translateY(24px)", transition: `opacity 0.5s ease ${index * 0.1}s, transform 0.5s ease ${index * 0.1}s`, perspective: "1200px", cursor: blurred ? "default" : "pointer", WebkitTapHighlightColor: "transparent", position: "relative" }}
       onClick={() => !blurred && setFlipped(!flipped)}>
       <div style={{ position: "relative", transformStyle: "preserve-3d", transform: flipped ? "rotateY(180deg)" : "rotateY(0)", transition: "transform 0.55s ease, height 0.35s ease", height: `${h}px` }}>
         {/* FRONT */}
-        <div ref={fRef} style={{ position: "absolute", top: 0, left: 0, right: 0, backfaceVisibility: "hidden", background: "linear-gradient(145deg, #16161c, #1c1c24)", border: `1px solid ${d.color}45`, borderRadius: "16px", padding: "22px 24px", display: "flex", flexDirection: "column", boxShadow: `0 0 0 1px ${d.color}10, 0 12px 40px rgba(0,0,0,0.5)` }}>
+        <div ref={fRef} style={{ position: "absolute", top: 0, left: 0, right: 0, backfaceVisibility: "hidden", background: "linear-gradient(145deg, #16161c, #1c1c24)", border: `1px solid ${d.color}45`, borderRadius: "16px", padding: "22px 24px", display: "flex", flexDirection: "column", boxShadow: `0 0 0 1px ${d.color}10, 0 12px 40px rgba(0,0,0,0.5)`, overflow: "hidden" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
             <div style={{ display: "inline-flex", alignItems: "center", gap: "7px", background: `${d.color}40`, border: `1px solid ${d.color}90`, borderRadius: "6px", padding: "5px 11px" }}>
               <span style={{ fontSize: "14px" }}>{d.icon}</span>
               <span style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.2px", color: "#fff" }}>{card.domain_label}</span>
             </div>
-            {showRemove ? (
+            {!blurred && (showRemove ? (
               <div style={{ display: "flex", gap: "6px" }}>
                 <button onClick={e => { e.stopPropagation(); onShare(card); }} title="Share" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "6px", padding: "4px 10px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "rgba(255,255,255,0.6)" }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.4)"; e.currentTarget.style.color = "#d4a843"; }}
@@ -698,11 +652,21 @@ function PatternCard({ card, index, isVisible, onGoDeeper, onSave, isSaved, onRe
                   onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.6)"; }}>Share</button>
                 <button onClick={e => { e.stopPropagation(); onSave(card); }} title={isSaved ? "Saved" : "Save card"} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "20px", transition: "transform 0.2s", transform: isSaved ? "scale(1.1)" : "scale(1)", filter: isSaved ? "none" : "grayscale(1) brightness(0.5)", padding: 0 }}>🔖</button>
               </div>
-            )}
+            ))}
           </div>
           <h3 style={{ fontFamily: "'Lato'", fontSize: "20px", fontWeight: 900, color: "#f5f5f5", lineHeight: 1.3, marginBottom: "14px" }}>{card.source_title}</h3>
-          <p style={{ fontFamily: "'Lato'", fontSize: "14.5px", color: "rgba(255,255,255,0.68)", lineHeight: 1.65 }}>{card.the_pattern}</p>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "18px", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "12px" }}>
+          <div style={{ position: "relative" }}>
+            <p style={{ fontFamily: "'Lato'", fontSize: "14.5px", color: "rgba(255,255,255,0.68)", lineHeight: 1.65, filter: blurred ? "blur(7px)" : "none", userSelect: blurred ? "none" : "auto", transition: "filter 0.3s ease" }}>{card.the_pattern}</p>
+            {blurred && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+                <div style={{ background: "rgba(24,24,31,0.85)", border: "1px solid rgba(212,168,67,0.4)", borderRadius: "10px", padding: "10px 18px", display: "flex", flexDirection: "column", alignItems: "center", gap: "4px", pointerEvents: "auto" }}>
+                  <span style={{ fontSize: "16px" }}>🔒</span>
+                  <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: "#d4a843", textTransform: "uppercase", letterSpacing: "1px" }}>Unlock to see the full pattern</span>
+                </div>
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "18px", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "12px", filter: blurred ? "blur(5px)" : "none" }}>
             <span style={{ fontFamily: "'Lato'", fontSize: "12px", color: "rgba(255,255,255,0.25)", maxWidth: "65%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{card.sub_problem}</span>
             <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: "#fff", letterSpacing: "2.5px", background: `${d.color}55`, borderRadius: "5px", padding: "4px 14px" }}>FLIP →</span>
           </div>
@@ -799,29 +763,120 @@ export default function PatternThief() {
   const [bonusSearches, setBonusSearches] = useState(0);
   const [isPro, setIsPro] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
+  // NEW: auth + status state
+  const [authUser, setAuthUser] = useState(null);
+  const [userStatus, setUserStatus] = useState(null);
+  const [showAuth, setShowAuth] = useState(false);
+  const [authContext, setAuthContext] = useState("default");
+  const [showAccount, setShowAccount] = useState(false);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
   const resultsRef = useRef(null);
 
-  const searchesAllowed = FREE_LIMIT + bonusSearches;
-  const canSearch = isPro || searchesUsed < searchesAllowed;
+  const searchesAllowed = (userStatus?.searches_allowed) ?? (FREE_LIMIT + bonusSearches);
+  const effectiveSearchesUsed = userStatus?.searches_used ?? searchesUsed;
+  const isAuthenticated = !!authUser;
+  const isProEffective = userStatus?.is_pro ?? isPro;
+  // Allow up to 1 preview attempt beyond the free limit
+  const canSearch = isProEffective || effectiveSearchesUsed < searchesAllowed + 1;
 
+  // ---- Auth state subscription ----
   useEffect(() => {
-    loadSavedCards().then(setSavedCards);
+    let unsubscribe = () => {};
+    (async () => {
+      const session = await getCurrentSession();
+      if (session?.user) {
+        setAuthUser(session.user);
+        await migrateAnonymousCardsIfNeeded();
+      }
+      const status = await fetchUserStatus();
+      if (status) setUserStatus(status);
+      unsubscribe = onAuthChange(async (user, event) => {
+        setAuthUser(user);
+        if (user && event === "SIGNED_IN") {
+          await migrateAnonymousCardsIfNeeded();
+        }
+        const s = await fetchUserStatus();
+        if (s) setUserStatus(s);
+      });
+    })();
+    // Refresh status when checkout returns success
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "success") {
+      setTimeout(async () => {
+        const s = await fetchUserStatus();
+        if (s) setUserStatus(s);
+        // Clean URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }, 1500);
+    }
+    return () => unsubscribe();
+  }, []);
+
+  const refreshUserStatus = async () => {
+    const s = await fetchUserStatus();
+    if (s) setUserStatus(s);
+  };
+
+  const migrateAnonymousCardsIfNeeded = async () => {
+    try {
+      const anonCards = await loadSavedCards();
+      if (anonCards && anonCards.length) {
+        const ok = await bulkMigrateCards(anonCards);
+        if (ok) {
+          await storageSet("saved-cards", []);
+        }
+      }
+      const serverCards = await fetchSavedCards();
+      if (serverCards) {
+        const normalized = serverCards.map(sc => sc.card_data || sc);
+        setSavedCards(normalized);
+      }
+    } catch (e) {
+      console.warn("Card migration failed (non-fatal):", e);
+    }
+  };
+
+  // ---- Initial state load (legacy localStorage for anonymous users) ----
+  useEffect(() => {
+    loadSavedCards().then(c => { if (!isAuthenticated) setSavedCards(c); });
     storageGet("searches-used", 0).then(setSearchesUsed);
     storageGet("bonus-searches", 0).then(setBonusSearches);
     storageGet("is-pro", false).then(setIsPro);
     storageGet("user-shown-sources", []).then(h => { userShownSources = h; });
     storageGet("global-shown-sources", [], true).then(h => { globalShownSources = h; });
+    // Initialize fingerprint early
+    getFingerprint().catch(() => {});
   }, []);
 
   const isCardSaved = (c) => savedCards.some(sc => sc.source_title === c.source_title && sc.domain === c.domain);
+
   const handleSaveCard = async (card) => {
     if (isCardSaved(card)) return;
-    const u = [...savedCards, { ...card, saved_at: new Date().toISOString(), original_problem: problem }];
-    setSavedCards(u); await saveSavedCards(u);
+    const cardWithMeta = { ...card, saved_at: new Date().toISOString(), original_problem: problem };
+    const u = [...savedCards, cardWithMeta];
+    setSavedCards(u);
+    if (isAuthenticated) {
+      await saveCardServer(cardWithMeta);
+    } else {
+      await saveSavedCards(u);
+      // Soft prompt after 2nd saved card
+      if (u.length === 2) setShowSavePrompt(true);
+    }
   };
+
   const handleRemoveCard = async (card) => {
     const u = savedCards.filter(sc => !(sc.source_title === card.source_title && sc.domain === card.domain));
-    setSavedCards(u); await saveSavedCards(u);
+    setSavedCards(u);
+    if (isAuthenticated) {
+      await deleteCardServer(card.source_title, card.domain);
+    } else {
+      await saveSavedCards(u);
+    }
+  };
+
+  const handleRequestAuth = (context) => {
+    setAuthContext(context || "default");
+    setShowAuth(true);
   };
 
   const handleSubmit = async () => {
@@ -882,7 +937,22 @@ export default function PatternThief() {
       {showInfo && <InfoModal onClose={() => setShowInfo(false)} />}
       {deeperCard && <GoDeeperModal card={deeperCard} originalProblem={deeperCard.original_problem || problem} onClose={() => setDeeperCard(null)} />}
       {shareCard && <ShareModal card={shareCard} onClose={() => setShareCard(null)} />}
-      {showUpgrade && <UpgradeModal searchesUsed={searchesUsed} searchesAllowed={searchesAllowed} onClose={() => setShowUpgrade(false)} onApplyCoupon={handleApplyCoupon} />}
+      {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} userStatus={userStatus} isAuthenticated={isAuthenticated} onRequestAuth={handleRequestAuth} onPurchaseSuccess={refreshUserStatus} />}
+      {showAuth && <AuthModal onClose={() => setShowAuth(false)} context={authContext} />}
+      {showAccount && <AccountPanel onClose={() => setShowAccount(false)} userStatus={userStatus} onStatusChange={refreshUserStatus} />}
+      {showSavePrompt && !isAuthenticated && (
+        <div onClick={() => setShowSavePrompt(false)} style={{ position: "fixed", bottom: "20px", left: "50%", transform: "translateX(-50%)", zIndex: 900, background: "linear-gradient(135deg, rgba(212,168,67,0.15), rgba(42,157,143,0.1))", border: "1px solid rgba(212,168,67,0.4)", borderRadius: "14px", padding: "14px 18px", maxWidth: "440px", width: "calc(100% - 40px)", backdropFilter: "blur(10px)", boxShadow: "0 12px 40px rgba(0,0,0,0.5)", cursor: "pointer" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <span style={{ fontSize: "22px" }}>🔖</span>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontFamily: "'Lato'", fontSize: "13px", fontWeight: 700, color: "#f5f5f5", marginBottom: "2px" }}>Want to keep your saved cards safe?</p>
+              <p style={{ fontFamily: "'Lato'", fontSize: "11.5px", color: "rgba(255,255,255,0.6)", lineHeight: 1.4 }}>Sign in (free) so your cards sync across devices.</p>
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); setShowSavePrompt(false); handleRequestAuth("save"); }} style={{ background: "rgba(212,168,67,0.2)", border: "1px solid rgba(212,168,67,0.5)", color: "#d4a843", padding: "8px 14px", borderRadius: "8px", fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Sign in</button>
+            <button onClick={(e) => { e.stopPropagation(); setShowSavePrompt(false); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.4)", fontSize: "16px", cursor: "pointer", padding: 0 }}>✕</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ position: "relative", zIndex: 1, maxWidth: "820px", margin: "0 auto", padding: "40px 20px 80px" }}>
 
@@ -898,13 +968,26 @@ export default function PatternThief() {
                 How It Works
               </button>
             </div>
-            {/* TOP-RIGHT: Saved cards button */}
+            {/* TOP-RIGHT: Saved cards + Account/Sign-in */}
             <div style={{ position: "absolute", top: 0, right: 0, zIndex: 5, display: "flex", gap: "8px", alignItems: "center" }}>
               <button onClick={() => setStep(4)} style={{ background: savedCards.length > 0 ? "rgba(212,168,67,0.08)" : "rgba(255,255,255,0.05)", border: `1px solid ${savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.12)"}`, borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.55)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.12)"; e.currentTarget.style.color = savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.55)"; }}>
                 🔖 Saved Cards{savedCards.length > 0 && ` (${savedCards.length})`}
               </button>
+              {isAuthenticated ? (
+                <button onClick={() => setShowAccount(true)} style={{ background: isProEffective ? "rgba(212,168,67,0.12)" : "rgba(255,255,255,0.05)", border: `1px solid ${isProEffective ? "rgba(212,168,67,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: isProEffective ? "#d4a843" : "rgba(255,255,255,0.55)" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = isProEffective ? "rgba(212,168,67,0.4)" : "rgba(255,255,255,0.12)"; }}>
+                  {isProEffective ? "👤 PRO" : "👤 Account"}
+                </button>
+              ) : (
+                <button onClick={() => handleRequestAuth("default")} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.55)"; }}>
+                  Sign in
+                </button>
+              )}
             </div>
             {/* CENTERED BELOW BUTTONS: searches counter (only shows when getting low) */}
             <div style={{ position: "absolute", top: "44px", left: 0, right: 0, textAlign: "center", zIndex: 4 }}>
@@ -1052,7 +1135,7 @@ export default function PatternThief() {
               {DOMAINS.filter(dm => results.cards?.some(c => c.domain === dm.id)).map(dm => <span key={dm.id} style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, padding: "4px 10px", borderRadius: "5px", background: `${dm.color}30`, color: dm.color, border: `1px solid ${dm.color}60`, filter: "brightness(1.2)" }}>{dm.icon} {dm.label}</span>)}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 360px), 1fr))", gap: "18px", marginBottom: "32px", alignItems: "start" }}>
-              {results.cards?.map((card, i) => <PatternCard key={i} card={card} index={i} isVisible={cardsVisible} onGoDeeper={setDeeperCard} onSave={handleSaveCard} isSaved={isCardSaved(card)} onRemove={handleRemoveCard} showRemove={false} blurred={false} onShare={setShareCard} canGoDeeper={canSearch} onLockedClick={() => setShowUpgrade(true)} />)}
+              {results.cards?.map((card, i) => <PatternCard key={i} card={card} index={i} isVisible={cardsVisible} onGoDeeper={setDeeperCard} onSave={handleSaveCard} isSaved={isCardSaved(card)} onRemove={handleRemoveCard} showRemove={false} blurred={!!results._is_preview} onShare={setShareCard} canGoDeeper={canSearch && !results._is_preview} onLockedClick={() => setShowUpgrade(true)} />)}
             </div>
             <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
               <button onClick={handleRefine} style={{ background: "rgba(212,168,67,0.08)", border: "1px solid rgba(212,168,67,0.25)", borderRadius: "10px", padding: "13px 24px", color: "#d4a843", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}
@@ -1061,6 +1144,15 @@ export default function PatternThief() {
                 onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; e.currentTarget.style.color = "#f1f1f1"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "rgba(255,255,255,0.45)"; }}>Start Over →</button>
             </div>
+            {!isProEffective && (
+              <div style={{ display: "flex", justifyContent: "center", marginTop: "16px" }}>
+                <button onClick={() => setShowUpgrade(true)} style={{ background: "linear-gradient(135deg, rgba(212,168,67,0.12), rgba(232,97,77,0.08))", border: "1px solid rgba(212,168,67,0.4)", borderRadius: "10px", padding: "11px 22px", color: "#d4a843", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, cursor: "pointer", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: "8px" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "linear-gradient(135deg, rgba(212,168,67,0.22), rgba(232,97,77,0.15))"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "linear-gradient(135deg, rgba(212,168,67,0.12), rgba(232,97,77,0.08))"; }}>
+                  <span>✨</span> Upgrade to Lifetime
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1076,6 +1168,9 @@ export default function PatternThief() {
           </div>
           <p style={{ fontFamily: "'Lato'", fontSize: "12px", color: "rgba(255,255,255,0.4)", marginBottom: "8px", lineHeight: 1.6 }}>
             Pattern Thief · Created by Prashant Anilkumar · © 2026 · All rights reserved
+          </p>
+          <p style={{ fontFamily: "'Lato'", fontSize: "11.5px", color: "rgba(255,255,255,0.5)", marginBottom: "10px", lineHeight: 1.6 }}>
+            Reach out or direct feedback to: <a href="mailto:Prashant@BeyondSingular.com" style={{ color: "#d4a843", textDecoration: "none" }}>Prashant@BeyondSingular.com</a>
           </p>
           <p style={{ fontFamily: "'Lato'", fontSize: "11px", color: "rgba(255,255,255,0.28)", fontStyle: "italic", lineHeight: 1.6, maxWidth: "480px", margin: "0 auto" }}>
             Pattern Thief uses AI to generate creative analogies. AI can make mistakes — always verify the patterns and apply your own judgment before acting on them.
