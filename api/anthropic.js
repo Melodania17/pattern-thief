@@ -94,15 +94,25 @@ export default async function handler(req, res) {
       }
     }
 
-    let isPreview = false;
+    // Determine call type from request body
+    // Clarification checks have max_tokens ~600 and shouldn't count against the user's free tier
+    // Main analysis calls have max_tokens >= 1500
+    const requestBody = req.body || {};
+    const isAnalysisCall = (requestBody.max_tokens || 0) >= 1500;
+    const isClarificationCall = !isAnalysisCall;
 
-    if (userId && !userIsPro) {
+    let isPreview = false;
+    let signedInFreeUsage = null;
+    let anonFreeUsage = null;
+
+    if (userId && !userIsPro && isAnalysisCall) {
       const result = await checkSignedInFreeTier(userId);
       if (result.blocked) return res.status(result.status).json(result.body);
       isPreview = !!result.preview;
+      signedInFreeUsage = result.usage;
     }
 
-    if (!userId) {
+    if (!userId && isAnalysisCall) {
       if (!fingerprint) {
         return res.status(400).json({ error: "missing_fingerprint", message: "Browser fingerprint required" });
       }
@@ -114,6 +124,13 @@ export default async function handler(req, res) {
       const result = await checkAnonymousFreeTier(fingerprint, cookieId, ipHash);
       if (result.blocked) return res.status(result.status).json(result.body);
       isPreview = !!result.preview;
+      anonFreeUsage = result.tracking;
+    }
+
+    // For anonymous users on first-ever visit (any call type), still set the cookie
+    if (!userId && !cookieId) {
+      cookieId = crypto.randomBytes(16).toString("hex");
+      setAnonymousCookie(res, cookieId);
     }
 
     // Call Anthropic
@@ -134,7 +151,35 @@ export default async function handler(req, res) {
       return res.status(response.status).json(data);
     }
 
-    if (userId && userIsPro) {
+    // ONLY increment counters AFTER successful Anthropic response, AND only for analysis calls (not clarification)
+    if (isAnalysisCall) {
+      if (userId && !userIsPro && signedInFreeUsage) {
+        const used = signedInFreeUsage.searches_used || 0;
+        const totalAllowed = FREE_LIMIT + (signedInFreeUsage.bonus_searches || 0);
+        // Increment search count atomically
+        await supabase
+          .from("search_usage")
+          .update({ searches_used: used + 1, last_search_at: new Date().toISOString() })
+          .eq("user_id", userId);
+        // If this was the preview attempt (over the limit), also increment preview counter
+      } else if (!userId && anonFreeUsage) {
+        const used = anonFreeUsage.searches_used || 0;
+        const previewsUsed = anonFreeUsage.preview_searches_used || 0;
+        if (isPreview) {
+          await supabase
+            .from("free_tier_tracking")
+            .update({ preview_searches_used: previewsUsed + 1, last_seen_at: new Date().toISOString() })
+            .eq("id", anonFreeUsage.id);
+        } else {
+          await supabase
+            .from("free_tier_tracking")
+            .update({ searches_used: used + 1, last_seen_at: new Date().toISOString() })
+            .eq("id", anonFreeUsage.id);
+        }
+      }
+    }
+
+    if (userId && userIsPro && isAnalysisCall) {
       supabase.from("search_usage")
         .update({ monthly_search_count: 1 })
         .eq("user_id", userId)
@@ -180,16 +225,12 @@ async function checkSignedInFreeTier(userId) {
     };
   }
 
-  await supabase
-    .from("search_usage")
-    .update({ searches_used: used + 1, last_search_at: new Date().toISOString() })
-    .eq("user_id", userId);
-
+  // Don't increment here — caller does it AFTER successful Anthropic response
   if (used >= totalAllowed) {
-    return { preview: true, blocked: false };
+    return { preview: true, blocked: false, usage };
   }
 
-  return { blocked: false };
+  return { blocked: false, usage };
 }
 
 async function checkAnonymousFreeTier(fingerprint, cookieId, ipHash) {
@@ -223,23 +264,6 @@ async function checkAnonymousFreeTier(fingerprint, cookieId, ipHash) {
 
   const isPreview = used >= FREE_LIMIT;
 
-  if (isPreview) {
-    await supabase
-      .from("free_tier_tracking")
-      .update({
-        preview_searches_used: previewsUsed + 1,
-        last_seen_at: new Date().toISOString(),
-      })
-      .eq("id", tracking.id);
-  } else {
-    await supabase
-      .from("free_tier_tracking")
-      .update({
-        searches_used: used + 1,
-        last_seen_at: new Date().toISOString(),
-      })
-      .eq("id", tracking.id);
-  }
-
-  return { blocked: false, preview: isPreview };
+  // Don't increment here — caller does it AFTER successful Anthropic response
+  return { blocked: false, preview: isPreview, tracking };
 }
