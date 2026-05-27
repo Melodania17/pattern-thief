@@ -46,13 +46,15 @@ export default async function handler(req, res) {
       return res.status(200).json({ ...publicData, authenticated: false });
     }
 
-    // Get purchase status
-    const { data: purchase } = await supabase
+    // Get purchase status — use limit(1) instead of maybeSingle in case of multiple completed rows (duplicate webhook fires, etc.)
+    const { data: purchases } = await supabase
       .from("purchases")
       .select("status, pro_tier, source, refund_eligible_until, amount_paid_cents, created_at")
       .eq("user_id", user.id)
       .eq("status", "completed")
-      .maybeSingle();
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const purchase = purchases && purchases.length > 0 ? purchases[0] : null;
 
     const isPro = !!purchase;
     const now = new Date();

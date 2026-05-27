@@ -32,12 +32,14 @@ export default async function handler(req, res) {
     }
 
     // Find the user's purchase
-    const { data: purchase, error: findError } = await supabase
+    const { data: purchases, error: findError } = await supabase
       .from("purchases")
       .select("*")
       .eq("user_id", user.id)
       .eq("status", "completed")
-      .maybeSingle();
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const purchase = purchases && purchases.length > 0 ? purchases[0] : null;
 
     if (findError || !purchase) {
       return res.status(404).json({ error: "No active purchase found" });

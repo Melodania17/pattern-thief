@@ -34,11 +34,13 @@ export default async function handler(req, res) {
 
     // Check if already Pro
     const { data: existingPurchase } = await supabase
+    const { data: existingPurchases } = await supabase
       .from("purchases")
       .select("id, status")
       .eq("user_id", user.id)
       .eq("status", "completed")
-      .maybeSingle();
+      .limit(1);
+    const existingPurchase = existingPurchases && existingPurchases.length > 0 ? existingPurchases[0] : null;
 
     if (existingPurchase) {
       return res.status(400).json({ error: "Already Pro" });

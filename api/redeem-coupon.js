@@ -58,12 +58,13 @@ export default async function handler(req, res) {
     // Apply the benefit
     if (coupon.benefit_type === "lifetime_pro") {
       // Check if already Pro
-      const { data: existingPurchase } = await supabase
+      const { data: existingPurchases } = await supabase
         .from("purchases")
         .select("id")
         .eq("user_id", user.id)
         .eq("status", "completed")
-        .maybeSingle();
+        .limit(1);
+      const existingPurchase = existingPurchases && existingPurchases.length > 0 ? existingPurchases[0] : null;
 
       if (existingPurchase) {
         return res.status(400).json({ error: "You already have Pro access." });
