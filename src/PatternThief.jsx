@@ -893,8 +893,14 @@ export default function PatternThief() {
         await runAnalysis([]);
       }
     } catch (err) {
+      // Free limit reached → open upgrade modal
+      if (err?.message?.startsWith("free_limit_reached")) {
+        setShowUpgrade(true);
+        setStep(1);
+        return;
+      }
       console.warn("Clarification check failed, proceeding to analysis:", err);
-      // If clarification fails for any reason, just proceed to analysis
+      // If clarification fails for any other reason, just proceed to analysis
       await runAnalysis([]);
     }
   };
@@ -915,6 +921,12 @@ export default function PatternThief() {
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
     } catch (err) {
       console.error("Analysis failed:", err);
+      // Free limit reached → open upgrade modal instead of generic error
+      if (err?.message?.startsWith("free_limit_reached")) {
+        setShowUpgrade(true);
+        setStep(1);
+        return;
+      }
       setError("Something went wrong. Please try again. (" + (err?.message || "Unknown error") + ")");
       setStep(1);
     }
@@ -968,13 +980,20 @@ export default function PatternThief() {
                 How It Works
               </button>
             </div>
-            {/* TOP-RIGHT: Saved cards + Account/Sign-in */}
-            <div style={{ position: "absolute", top: 0, right: 0, zIndex: 5, display: "flex", gap: "8px", alignItems: "center" }}>
+            {/* TOP-RIGHT: Saved cards + Account/Sign-in + Upgrade */}
+            <div style={{ position: "absolute", top: 0, right: 0, zIndex: 5, display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
               <button onClick={() => setStep(4)} style={{ background: savedCards.length > 0 ? "rgba(212,168,67,0.08)" : "rgba(255,255,255,0.05)", border: `1px solid ${savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.12)"}`, borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.55)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = savedCards.length > 0 ? "rgba(212,168,67,0.3)" : "rgba(255,255,255,0.12)"; e.currentTarget.style.color = savedCards.length > 0 ? "#d4a843" : "rgba(255,255,255,0.55)"; }}>
                 🔖 Saved Cards{savedCards.length > 0 && ` (${savedCards.length})`}
               </button>
+              {!isProEffective && (
+                <button onClick={() => setShowUpgrade(true)} style={{ background: "linear-gradient(135deg, rgba(212,168,67,0.2), rgba(232,97,77,0.15))", border: "1px solid rgba(212,168,67,0.5)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "#d4a843", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "linear-gradient(135deg, rgba(212,168,67,0.3), rgba(232,97,77,0.22))"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "linear-gradient(135deg, rgba(212,168,67,0.2), rgba(232,97,77,0.15))"; }}>
+                  ✨ Upgrade
+                </button>
+              )}
               {isAuthenticated ? (
                 <button onClick={() => setShowAccount(true)} style={{ background: isProEffective ? "rgba(212,168,67,0.12)" : "rgba(255,255,255,0.05)", border: `1px solid ${isProEffective ? "rgba(212,168,67,0.4)" : "rgba(255,255,255,0.12)"}`, borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: isProEffective ? "#d4a843" : "rgba(255,255,255,0.55)" }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; }}
