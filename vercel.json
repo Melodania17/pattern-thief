@@ -1,0 +1,17 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "functions": {
+    "api/anthropic.js": { "maxDuration": 60 },
+    "api/stripe-checkout.js": { "maxDuration": 30 },
+    "api/stripe-webhook.js": { "maxDuration": 30 },
+    "api/stripe-refund.js": { "maxDuration": 30 },
+    "api/redeem-coupon.js": { "maxDuration": 15 },
+    "api/user-status.js": { "maxDuration": 15 },
+    "api/saved-cards.js": { "maxDuration": 15 }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" }
+  ]
+}
