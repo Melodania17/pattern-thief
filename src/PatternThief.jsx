@@ -86,6 +86,7 @@ const globalStyles = `
 @keyframes float3{0%,100%{transform:translate(0,0)}50%{transform:translate(8px,-20px)}}
 @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 @keyframes ptspin{to{transform:rotate(360deg)}}
+@keyframes ptpulse{0%,100%{transform:scale(0.85);opacity:0.5}50%{transform:scale(1.15);opacity:0.9}}
 `;
 
 // ─── RANDOMIZATION & ANTI-REPETITION ─────────────────────────────────
@@ -93,8 +94,8 @@ const globalStyles = `
 // so the same pattern doesn't appear twice within a reasonable window.
 let userShownSources = [];   // This user's history (persisted)
 let globalShownSources = []; // Global recent sources (shared across users, persisted)
-const MAX_USER_HISTORY = 80;   // Don't repeat any source shown to this user in the last 80
-const MAX_GLOBAL_HISTORY = 40; // Don't repeat any source that ANY recent user got in the last 40
+const MAX_USER_HISTORY = 150;  // Don't repeat any source shown to this user in the last 150
+const MAX_GLOBAL_HISTORY = 80; // Don't repeat any source that ANY recent user got in the last 80
 
 function getRandomDomainPriority() {
   const s = [...DOMAINS].sort(() => Math.random() - 0.5);
@@ -104,7 +105,7 @@ function getRandomDomainPriority() {
 function getAvoidList() {
   const combined = [...new Set([...userShownSources, ...globalShownSources])];
   if (!combined.length) return "";
-  return `\nABSOLUTE RULE — DO NOT use any of these sources (already shown to this or another recent user): ${combined.join(", ")}. Find COMPLETELY DIFFERENT sources from different examples, species, myths, events, works, etc.`;
+  return `\n\n=== HARD ANTI-REPETITION RULE (CRITICAL) ===\nThese sources have ALREADY been shown recently: ${combined.join("; ")}.\nDo NOT reuse ANY of them. This includes close variants: if "miso fermentation" is listed, also avoid miso, koji, soy fermentation, and the same underlying example worded differently. Pick genuinely DIFFERENT species, myths, events, people, and works. If you find yourself reaching for a well-known go-to example, assume it has been used and choose something fresher.`;
 }
 
 function recordShownSources(cards) {
@@ -130,21 +131,36 @@ function recordShownSources(cards) {
 // ─── STORAGE ─────────────────────────────────────────────────────────
 let memStore = {};
 async function storageGet(key, fallback, shared = false) {
+  // Prefer real localStorage — it's the durable source that survives tab close / reload.
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const raw = window.localStorage.getItem("pt:" + key);
+      if (raw !== null) return JSON.parse(raw);
+    }
+  } catch {}
+  // Secondary: sandboxed window.storage (may be session-scoped)
   try {
     if (typeof window !== "undefined" && window.storage) {
       const r = await window.storage.get(key, shared);
-      return r ? JSON.parse(r.value) : fallback;
+      if (r) return JSON.parse(r.value);
     }
   } catch {}
   return key in memStore ? memStore[key] : fallback;
 }
 async function storageSet(key, val, shared = false) {
   memStore[key] = val;
+  // Always write to real localStorage so it persists across sessions.
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem("pt:" + key, JSON.stringify(val));
+    }
+  } catch (e) { console.error("Storage(local):", e); }
+  // Also mirror to sandboxed window.storage if present (best effort).
   try {
     if (typeof window !== "undefined" && window.storage) {
       await window.storage.set(key, JSON.stringify(val), shared);
     }
-  } catch (e) { console.error("Storage:", e); }
+  } catch (e) { /* non-fatal */ }
 }
 async function loadSavedCards() { return storageGet("saved-cards", []); }
 async function saveSavedCards(cards) { return storageSet("saved-cards", cards); }
@@ -362,8 +378,23 @@ function InfoModal({ onClose }) {
 
 // ─── FLOATING ICONS ──────────────────────────────────────────────────
 function FloatingIcons() {
-  const ps=[{top:"8%",left:"5%",a:"float1",d:"18s",s:"28px",o:0.15},{top:"15%",right:"8%",a:"float2",d:"22s",s:"32px",o:0.12},{top:"35%",left:"3%",a:"float3",d:"20s",s:"24px",o:0.1},{top:"55%",right:"4%",a:"float1",d:"25s",s:"26px",o:0.13},{top:"70%",left:"7%",a:"float2",d:"19s",s:"30px",o:0.11},{top:"25%",left:"12%",a:"float3",d:"23s",s:"22px",o:0.08},{top:"45%",right:"10%",a:"float1",d:"21s",s:"28px",o:0.1},{top:"80%",right:"12%",a:"float2",d:"17s",s:"24px",o:0.12},{top:"10%",left:"25%",a:"float3",d:"24s",s:"20px",o:0.07},{top:"60%",left:"18%",a:"float1",d:"20s",s:"22px",o:0.09},{top:"40%",right:"20%",a:"float2",d:"26s",s:"26px",o:0.08},{top:"85%",left:"22%",a:"float3",d:"18s",s:"24px",o:0.1}];
-  return <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none"}}>{DOMAINS.slice(0,12).map((d,i)=>{const p=ps[i];return <span key={d.id} style={{position:"absolute",top:p.top,left:p.left,right:p.right,fontSize:p.s,opacity:p.o,animation:`${p.a} ${p.d} ease-in-out infinite`,filter:"blur(0.5px)"}}>{d.icon}</span>;})}</div>;
+  // Positioned toward the left/right edges (the empty gutters on desktop), kept subtle
+  // so they never overwhelm the centered text. Mobile naturally clips the far edges.
+  const ps=[
+    {top:"6%",left:"2%",a:"float1",d:"18s",s:"52px",o:0.16},
+    {top:"12%",right:"3%",a:"float2",d:"22s",s:"56px",o:0.15},
+    {top:"30%",left:"1%",a:"float3",d:"20s",s:"48px",o:0.14},
+    {top:"48%",right:"2%",a:"float1",d:"25s",s:"54px",o:0.16},
+    {top:"66%",left:"3%",a:"float2",d:"19s",s:"50px",o:0.15},
+    {top:"82%",right:"3%",a:"float3",d:"23s",s:"48px",o:0.14},
+    {top:"20%",left:"6%",a:"float1",d:"21s",s:"44px",o:0.12},
+    {top:"58%",right:"6%",a:"float2",d:"17s",s:"46px",o:0.13},
+    {top:"88%",left:"7%",a:"float3",d:"24s",s:"42px",o:0.12},
+    {top:"38%",right:"7%",a:"float1",d:"20s",s:"44px",o:0.12},
+    {top:"74%",left:"1%",a:"float2",d:"26s",s:"50px",o:0.14},
+    {top:"4%",right:"8%",a:"float3",d:"18s",s:"42px",o:0.11},
+  ];
+  return <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none"}}>{DOMAINS.slice(0,12).map((d,i)=>{const p=ps[i];return <span key={d.id} style={{position:"absolute",top:p.top,left:p.left,right:p.right,fontSize:p.s,opacity:p.o,animation:`${p.a} ${p.d} ease-in-out infinite`}}>{d.icon}</span>;})}</div>;
 }
 
 function FEARBar({ activeStep }) {
@@ -706,11 +737,50 @@ function PatternCard({ card, index, isVisible, onGoDeeper, onSave, isSaved, onRe
 }
 
 function LoadingSequence({ text }) {
-  const msgs = ["Breaking your problem into its core pieces","Scanning 27 domains for hidden patterns","Matching structural analogies","Preparing stolen ideas for reassembly"];
+  // Dramatic, non-repeating "someone is actually thinking" sequence.
+  // Shuffled once per load so it feels alive, and it never repeats a line in a run.
+  const pool = [
+    "Fracturing your problem into its real tensions",
+    "Hmm. The obvious answer is right there… ignoring it",
+    "Reaching past your own industry on purpose",
+    "Rifling through ornithology, ritual, deep biology…",
+    "That one's too clever to be useful. Dropping it",
+    "Wait — there's something in an unexpected corner",
+    "Ooh. That's quite profound… let me pull the thread",
+    "No, no — nobody would think to look here. Perfect",
+    "Testing whether this pattern actually maps to you",
+    "Almost. Let me find something a little more mind-bending",
+    "Yes. That's the steal — reassembling it for you",
+  ];
+  const [order] = useState(() => {
+    const a = [...pool];
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    // Keep the first (fracture) and last (steal) anchored for narrative arc
+    return ["Fracturing your problem into its real tensions", ...a.filter(x => x !== "Fracturing your problem into its real tensions" && x !== "Yes. That's the steal — reassembling it for you"), "Yes. That's the steal — reassembling it for you"];
+  });
   const [c, setC] = useState(0);
   const [dots, setDots] = useState("");
-  useEffect(() => { const m=setInterval(()=>setC(p=>Math.min(p+1,3)),4500); const d=setInterval(()=>setDots(p=>p.length>=3?"":p+"."),500); return()=>{clearInterval(m);clearInterval(d);}; }, []);
-  return <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"70px 20px",gap:"28px"}}><FEARBar activeStep={c} /><div style={{width:"64px",height:"64px",borderRadius:"50%",background:`conic-gradient(${FEAR_STEPS[c]?.color},transparent)`,animation:"ptspin 1.2s linear infinite",opacity:0.5}} /><p style={{fontFamily:"'Lato'",fontSize:"16px",color:"rgba(255,255,255,0.5)",textAlign:"center"}}>{text||msgs[c]}{dots}</p></div>;
+  const barStep = Math.min(Math.floor((c / order.length) * 4), 3);
+  useEffect(() => {
+    const m = setInterval(() => setC(p => Math.min(p + 1, order.length - 1)), 2100);
+    const d = setInterval(() => setDots(p => p.length >= 3 ? "" : p + "."), 450);
+    return () => { clearInterval(m); clearInterval(d); };
+  }, [order.length]);
+  const color = FEAR_STEPS[barStep]?.color || "#d4a843";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 20px", gap: "26px" }}>
+      <FEARBar activeStep={barStep} />
+      {/* Layered thinking visual: pulsing core + orbiting spark */}
+      <div style={{ position: "relative", width: "88px", height: "88px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: `radial-gradient(circle, ${color}33, transparent 70%)`, animation: "ptpulse 2s ease-in-out infinite" }} />
+        <div style={{ width: "58px", height: "58px", borderRadius: "50%", border: `2px solid ${color}`, borderTopColor: "transparent", borderRightColor: "transparent", animation: "ptspin 1.1s linear infinite", opacity: 0.7 }} />
+        <div style={{ position: "absolute", width: "10px", height: "10px", borderRadius: "50%", background: color, top: "6px", left: "50%", transform: "translateX(-50%)", animation: "ptspin 1.6s linear infinite", transformOrigin: "50% 38px", boxShadow: `0 0 10px ${color}` }} />
+      </div>
+      <p key={c} style={{ fontFamily: "'Lato'", fontSize: "16px", fontWeight: 400, color: "rgba(255,255,255,0.72)", textAlign: "center", minHeight: "24px", maxWidth: "400px", lineHeight: 1.5, animation: "fadeUp 0.4s ease" }}>
+        {text || order[c]}{dots}
+      </p>
+    </div>
+  );
 }
 
 // ─── SAVED CARDS VIEW ────────────────────────────────────────────────
@@ -784,7 +854,7 @@ export default function PatternThief() {
   const searchesAllowed = (userStatus?.searches_allowed) ?? (FREE_LIMIT + bonusSearches);
   const effectiveSearchesUsed = userStatus?.searches_used ?? searchesUsed;
   const isAuthenticated = !!authUser;
-  const isProEffective = userStatus?.is_pro ?? isPro;
+  const isProEffective = (userStatus?.is_pro === true) || isPro === true;
   // Allow up to 1 preview attempt beyond the free limit
   const canSearch = isProEffective || effectiveSearchesUsed < searchesAllowed + 1;
 
@@ -1056,40 +1126,20 @@ export default function PatternThief() {
             </div>
             <div style={{ position: "relative", zIndex: 2, animation: "fadeUp 0.8s ease" }}>
               <h1 style={{ fontFamily: "'Lato'", fontSize: "clamp(42px, 8vw, 72px)", fontWeight: 900, lineHeight: 1.05, marginBottom: "20px", textAlign: "center", color: "#f5f5f5" }}>Pattern Thief</h1>
-              <p style={{ fontFamily: "'Lato'", fontSize: "17px", fontWeight: 300, color: "rgba(255,255,255,0.65)", textAlign: "center", maxWidth: "560px", margin: "0 auto 36px", lineHeight: 1.65 }}>
-                For the curious, the stuck, and the slightly bored. Discover and steal something the algorithm wouldn't show you.
+              <p style={{ fontFamily: "'Lato'", fontSize: "18px", fontWeight: 500, color: "rgba(255,255,255,0.92)", textAlign: "center", maxWidth: "560px", margin: "0 auto 10px", lineHeight: 1.5 }}>
+                For the curious, the uninspired, and the digitally trapped.
+              </p>
+              <p style={{ fontFamily: "'Lato'", fontSize: "15px", fontWeight: 400, color: "#d4a843", textAlign: "center", maxWidth: "540px", margin: "0 auto 30px", lineHeight: 1.6 }}>
+                Not another chatbot surfacing obvious answers. A thinking machine stealing patterns from fields you'd never think to look.
               </p>
               <div style={{ width: "60px", height: "2px", background: "linear-gradient(90deg, #e8614d, #d4a843, #2a9d8f)", margin: "0 auto 28px" }} />
 
-              {/* PATTERN OF THE DAY — replaces the old preview box */}
+              {/* PATTERN OF THE DAY — slim daily hook */}
               <div style={{ marginBottom: "20px" }}>
                 <PatternOfTheDay onExplore={() => { document.querySelector("#pt-problem-input")?.scrollIntoView({ behavior: "smooth", block: "center" }); document.querySelector("#pt-problem-input")?.focus(); }} />
               </div>
 
-              {/* Ghost chips — returning users see their own recent questions (gold, ↺), mixed with fresh starters (grey) */}
-              <div style={{ textAlign: "center", marginBottom: "10px" }}>
-                <span style={{ fontFamily: "'Lato'", fontSize: "10px", color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700 }}>
-                  {recentPrompts.length > 0 ? "Pick up where you left off, or start fresh" : "Try one of these or describe your own"}
-                </span>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", justifyContent: "center", marginBottom: "20px" }}>
-                {recentPrompts.map((rp, i) => {
-                  const short = rp.length > 34 ? rp.slice(0, 32) + "…" : rp;
-                  return (
-                    <button key={`recent-${i}`} onClick={() => setProblem(rp)}
-                      style={{ background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.35)", borderRadius: "16px", padding: "6px 13px", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "#d4a843", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                      <span style={{ fontSize: "11px" }}>↺</span> {short}
-                    </button>
-                  );
-                })}
-                {STARTER_CHIPS.slice(0, Math.max(2, 4 - recentPrompts.length)).map((chip, i) => (
-                  <button key={`starter-${i}`} onClick={() => setProblem(chip.prompt)}
-                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "16px", padding: "6px 13px", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)", cursor: "pointer", transition: "all 0.2s" }}>
-                    {chip.label}
-                  </button>
-                ))}
-              </div>
-
+              {/* INPUT BOX — primary action, now directly after Pattern of the Day */}
               <div style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "20px", padding: "28px", backdropFilter: "blur(12px)" }}>
                 <textarea id="pt-problem-input" value={problem} onChange={e => setProblem(e.target.value)} placeholder="e.g. My customers love our product during the trial but 60% don't convert to paid..." rows={5}
                   style={{ width: "100%", background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", padding: "18px", color: "#f1f1f1", fontFamily: "'Lato'", fontSize: "15px", fontWeight: 300, lineHeight: 1.65, resize: "vertical", outline: "none", boxSizing: "border-box" }}
@@ -1105,12 +1155,21 @@ export default function PatternThief() {
                     <div style={{ display: "flex", alignItems: "center", gap: "7px", marginBottom: "12px" }}>
                       <span style={{ fontSize: "15px" }}>🎯</span>
                       <span style={{ fontFamily: "'Lato'", fontSize: "13px", fontWeight: 700, color: "#f5f5f5" }}>Theft radius</span>
+                      <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
+                        onMouseEnter={e => { const t = e.currentTarget.querySelector(".radius-tip"); if (t) t.style.display = "block"; }}
+                        onMouseLeave={e => { const t = e.currentTarget.querySelector(".radius-tip"); if (t) t.style.display = "none"; }}
+                        onClick={e => { const t = e.currentTarget.querySelector(".radius-tip"); if (t) t.style.display = t.style.display === "block" ? "none" : "block"; }}>
+                        <span style={{ width: "15px", height: "15px", borderRadius: "50%", border: "1px solid rgba(255,255,255,0.35)", color: "rgba(255,255,255,0.55)", fontSize: "10px", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontStyle: "italic" }}>i</span>
+                        <span className="radius-tip" style={{ display: "none", position: "absolute", bottom: "130%", left: "50%", transform: "translateX(-50%)", width: "240px", background: "#000", border: "1px solid rgba(212,168,67,0.4)", borderRadius: "8px", padding: "10px 12px", fontFamily: "'Lato'", fontSize: "11px", lineHeight: 1.5, color: "rgba(255,255,255,0.8)", zIndex: 10, fontWeight: 400 }}>
+                          How far Pattern Thief reaches for its sources — from adjacent fields (Near) to the genuinely strange (Wild). This is guidance to the AI, not a hard filter: it steers the results but won't be mechanically precise, so nearby stops may overlap.
+                        </span>
+                      </span>
                     </div>
-                    <div style={{ position: "relative", marginBottom: "2px" }}>
-                      <div style={{ height: "5px", borderRadius: "3px", background: "linear-gradient(90deg,#5DCAA5,#a8c14d,#d4a843,#e8614d)" }} />
-                      <div style={{ position: "absolute", top: "50%", left: `${[0, 33.33, 66.66, 100][theftRadius]}%`, transform: "translate(-50%,-50%)", width: "20px", height: "20px", borderRadius: "50%", background: "#d4a843", border: "3px solid #1c1c24", boxShadow: "0 2px 8px rgba(0,0,0,0.4)", pointerEvents: "none" }} />
+                    <div style={{ position: "relative", height: "20px" }}>
+                      <div style={{ position: "absolute", left: 0, right: 0, top: "50%", transform: "translateY(-50%)", height: "5px", borderRadius: "3px", background: "linear-gradient(90deg,#5DCAA5,#a8c14d,#d4a843,#e8614d)" }} />
+                      <div style={{ position: "absolute", top: "50%", left: `${[2, 35, 65, 98][theftRadius]}%`, transform: "translate(-50%,-50%)", width: "18px", height: "18px", borderRadius: "50%", background: "#d4a843", border: "3px solid #1c1c24", boxShadow: "0 2px 8px rgba(0,0,0,0.4)", pointerEvents: "none" }} />
                       <input type="range" min={0} max={3} value={theftRadius} onChange={e => setTheftRadius(parseInt(e.target.value))}
-                        style={{ width: "100%", opacity: 0, height: "22px", margin: "-13px 0 0", cursor: "pointer", position: "relative", zIndex: 2 }} />
+                        style={{ width: "100%", opacity: 0, height: "20px", margin: 0, cursor: "pointer", position: "absolute", top: 0, left: 0, zIndex: 2 }} />
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px" }}>
                       {THEFT_RADIUS_STOPS.map((stop, i) => (
@@ -1128,6 +1187,30 @@ export default function PatternThief() {
                   style={{ width: "100%", padding: "16px", background: problem.trim() ? "linear-gradient(135deg, #e8614d, #d4a843)" : "rgba(255,255,255,0.08)", color: problem.trim() ? "#fff" : "rgba(255,255,255,0.5)", border: "none", borderRadius: "12px", fontFamily: "'Lato'", fontSize: "13px", fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", cursor: problem.trim() ? "pointer" : "default", boxShadow: problem.trim() ? "0 4px 20px rgba(232,97,77,0.25)" : "none" }}>
                   Find Hidden Patterns
                 </button>
+              </div>
+
+              {/* Ghost chips — now BELOW the input. Returning users see their own recent questions (gold, ↺) mixed with fresh starters (grey) */}
+              <div style={{ textAlign: "center", margin: "20px 0 10px" }}>
+                <span style={{ fontFamily: "'Lato'", fontSize: "10px", color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700 }}>
+                  {recentPrompts.length > 0 ? "Pick up where you left off, or start fresh" : "Need a starting point? Try one of these"}
+                </span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", justifyContent: "center", marginBottom: "10px" }}>
+                {recentPrompts.map((rp, i) => {
+                  const short = rp.length > 34 ? rp.slice(0, 32) + "…" : rp;
+                  return (
+                    <button key={`recent-${i}`} onClick={() => setProblem(rp)}
+                      style={{ background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.35)", borderRadius: "16px", padding: "6px 13px", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "#d4a843", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                      <span style={{ fontSize: "11px" }}>↺</span> {short}
+                    </button>
+                  );
+                })}
+                {STARTER_CHIPS.slice(0, Math.max(2, 4 - recentPrompts.length)).map((chip, i) => (
+                  <button key={`starter-${i}`} onClick={() => setProblem(chip.prompt)}
+                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "16px", padding: "6px 13px", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)", cursor: "pointer", transition: "all 0.2s" }}>
+                    {chip.label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -1162,20 +1245,20 @@ export default function PatternThief() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: "14px" }}>
                 <h1 style={{ fontFamily: "'Lato'", fontSize: "clamp(28px, 5vw, 38px)", fontWeight: 900, color: "#f5f5f5" }}>Pattern Thief</h1>
-                {!isPro && (searchesAllowed - searchesUsed) === 2 && (
+                {!isProEffective && (searchesAllowed - searchesUsed) === 2 && (
                   <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 400, color: "rgba(255,255,255,0.3)" }}>
                     2 searches left
                   </span>
                 )}
-                {!isPro && (searchesAllowed - searchesUsed) === 1 && (
+                {!isProEffective && (searchesAllowed - searchesUsed) === 1 && (
                   <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 400, color: "rgba(232,97,77,0.7)" }}>
                     1 search left — make it count
                   </span>
                 )}
-                {!isPro && (searchesAllowed - searchesUsed) <= 0 && (
+                {!isProEffective && (searchesAllowed - searchesUsed) <= 0 && (
                   <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: "#e8614d" }}>No searches left</span>
                 )}
-                {isPro && <span style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "#d4a843", background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.3)", borderRadius: "4px", padding: "3px 8px", letterSpacing: "1px", textTransform: "uppercase" }}>Pro</span>}
+                {isProEffective && <span style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "#d4a843", background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.3)", borderRadius: "4px", padding: "3px 8px", letterSpacing: "1px", textTransform: "uppercase" }}>Pro</span>}
               </div>
               <button onClick={() => setShowInfo(true)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: "rgba(255,255,255,0.55)" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.55)"; }}>How It Works</button>
