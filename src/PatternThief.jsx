@@ -86,6 +86,7 @@ const globalStyles = `
 @keyframes float3{0%,100%{transform:translate(0,0)}50%{transform:translate(8px,-20px)}}
 @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 @keyframes ptspin{to{transform:rotate(360deg)}}
+@keyframes ptpulse{0%,100%{transform:scale(0.85);opacity:0.5}50%{transform:scale(1.15);opacity:0.9}}
 `;
 
 // ─── RANDOMIZATION & ANTI-REPETITION ─────────────────────────────────
@@ -93,8 +94,8 @@ const globalStyles = `
 // so the same pattern doesn't appear twice within a reasonable window.
 let userShownSources = [];   // This user's history (persisted)
 let globalShownSources = []; // Global recent sources (shared across users, persisted)
-const MAX_USER_HISTORY = 80;   // Don't repeat any source shown to this user in the last 80
-const MAX_GLOBAL_HISTORY = 40; // Don't repeat any source that ANY recent user got in the last 40
+const MAX_USER_HISTORY = 150;  // Don't repeat any source shown to this user in the last 150
+const MAX_GLOBAL_HISTORY = 80; // Don't repeat any source that ANY recent user got in the last 80
 
 function getRandomDomainPriority() {
   const s = [...DOMAINS].sort(() => Math.random() - 0.5);
@@ -104,7 +105,7 @@ function getRandomDomainPriority() {
 function getAvoidList() {
   const combined = [...new Set([...userShownSources, ...globalShownSources])];
   if (!combined.length) return "";
-  return `\nABSOLUTE RULE — DO NOT use any of these sources (already shown to this or another recent user): ${combined.join(", ")}. Find COMPLETELY DIFFERENT sources from different examples, species, myths, events, works, etc.`;
+  return `\n\n=== HARD ANTI-REPETITION RULE (CRITICAL) ===\nThese sources have ALREADY been shown recently: ${combined.join("; ")}.\nDo NOT reuse ANY of them. This includes close variants: if "miso fermentation" is listed, also avoid miso, koji, soy fermentation, and the same underlying example worded differently. Pick genuinely DIFFERENT species, myths, events, people, and works. If you find yourself reaching for a well-known go-to example, assume it has been used and choose something fresher.`;
 }
 
 function recordShownSources(cards) {
@@ -130,21 +131,36 @@ function recordShownSources(cards) {
 // ─── STORAGE ─────────────────────────────────────────────────────────
 let memStore = {};
 async function storageGet(key, fallback, shared = false) {
+  // Prefer real localStorage — it's the durable source that survives tab close / reload.
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const raw = window.localStorage.getItem("pt:" + key);
+      if (raw !== null) return JSON.parse(raw);
+    }
+  } catch {}
+  // Secondary: sandboxed window.storage (may be session-scoped)
   try {
     if (typeof window !== "undefined" && window.storage) {
       const r = await window.storage.get(key, shared);
-      return r ? JSON.parse(r.value) : fallback;
+      if (r) return JSON.parse(r.value);
     }
   } catch {}
   return key in memStore ? memStore[key] : fallback;
 }
 async function storageSet(key, val, shared = false) {
   memStore[key] = val;
+  // Always write to real localStorage so it persists across sessions.
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem("pt:" + key, JSON.stringify(val));
+    }
+  } catch (e) { console.error("Storage(local):", e); }
+  // Also mirror to sandboxed window.storage if present (best effort).
   try {
     if (typeof window !== "undefined" && window.storage) {
       await window.storage.set(key, JSON.stringify(val), shared);
     }
-  } catch (e) { console.error("Storage:", e); }
+  } catch (e) { /* non-fatal */ }
 }
 async function loadSavedCards() { return storageGet("saved-cards", []); }
 async function saveSavedCards(cards) { return storageSet("saved-cards", cards); }
@@ -242,10 +258,50 @@ JSON only (no commentary before or after):
   recordShownSources(p.cards); return p;
 }
 
-async function exploreDeeper(card, originalProblem) {
-  const r = await authenticatedFetch({ model: "claude-sonnet-4-5", max_tokens: 1500,
-      system: `Expert analyst. Explore how a cross-domain pattern applies to a specific problem. Structure: 1. PATTERN IN DEPTH (2-3 sent) 2. HOW IT MAPS (2-3 sent specific) 3. THREE IDEAS (2 sent each, escalating) 4. WATCH OUT (1-2 sent). Under 300 words. Direct.`,
-      messages: [{ role: "user", content: `PROBLEM: ${originalProblem}\nPATTERN: ${card.domain_label} — ${card.source_title}\n${card.the_pattern}\nConnection: ${card.the_analogy}\nSteal: ${card.the_steal}\n\nApply this to my situation.` }] });
+// Rabbit Hole: take a card's PATTERN as the new seed and jump laterally to a fresh
+// cross-domain pattern — not tied to the user's original problem. This is what makes
+// exploration feel like falling down a generative hole rather than re-answering.
+async function rabbitHole(card) {
+  const { full, mustInclude } = getRandomDomainPriority();
+  const r = await authenticatedFetch({ model: "claude-sonnet-4-5", max_tokens: 1400,
+      system: `You run a lateral "rabbit hole" jump. The user just saw a pattern and wants to see where THAT pattern leads next — not to re-solve their original problem, but to follow the idea somewhere new.
+
+Take the given pattern as your seed. Find ONE fresh pattern from a DIFFERENT domain that shares the same underlying mechanism or tension, but lands somewhere the user wouldn't have predicted. The jump should feel like "oh, THAT connects too?!"
+
+Rules:
+- Different domain from the seed card's domain.
+- Real, verifiable source. No fabrication.
+- The connection to the seed pattern must be genuine and structural, not superficial.
+- Keep the same voice: concrete, second person where natural, no jargon.
+- Search across these 27 domains: ${full}. Prefer: ${mustInclude.join(", ")}.
+${getAvoidList()}
+
+Return JSON only (one card):
+{"cards":[{"domain":"id","domain_label":"...","source_title":"...","the_pattern":"1-2 sentences","the_analogy":"1 sentence tying it to the SEED pattern","the_steal":"1 concrete provocative sentence","precedent":"real example or null","go_deeper_prompt":"1 sentence"}]}`,
+      messages: [{ role: "user", content: `SEED PATTERN: ${card.domain_label} — ${card.source_title}\n${card.the_pattern}\nIts steal: ${card.the_steal}\n\nJump to where this pattern leads next.` }] });
+  if (r.status === 402) throw new Error("free_limit_reached");
+  if (!r.ok) throw new Error(`API ${r.status}`);
+  const data = await r.json();
+  const txt = data.content.filter(b => b.type === "text").map(b => b.text).join("");
+  const parsed = extractJSON(txt);
+  if (data._is_preview) parsed._is_preview = true;
+  recordShownSources(parsed.cards); return parsed;
+}
+
+async function exploreDeeper(card, originalProblem, history = []) {
+  // history: array of {role, content} for the ongoing conversation.
+  // First turn (empty history) gets a structured opening; later turns continue the chat.
+  const isFirst = history.length === 0;
+  const systemPrompt = isFirst
+    ? `You are a sharp thinking partner helping the user APPLY a cross-domain pattern to their real problem. Do not send them elsewhere — work it through with them here. Open with: 1. HOW IT MAPS to their specific situation (2-3 sentences, concrete, use their words). 2. THREE THINGS TO TRY (each 1-2 sentences, escalating from easy to bold, each a concrete action they could run this week). 3. ONE WATCH-OUT (1 sentence). Under 280 words. End with a single pointed question that invites them to go further. Direct, no fluff, second person.`
+    : `You are a sharp thinking partner continuing a conversation about applying a cross-domain pattern to the user's problem. Answer their follow-up concretely and briefly (under 200 words), always pushing toward a specific, testable action. Second person, direct. End with a question only if it genuinely moves the thinking forward.`;
+  const messages = isFirst
+    ? [{ role: "user", content: `PROBLEM: ${originalProblem}\nPATTERN: ${card.domain_label} — ${card.source_title}\n${card.the_pattern}\nConnection: ${card.the_analogy}\nSteal: ${card.the_steal}\n\nApply this to my situation.` }]
+    : [
+        { role: "user", content: `PROBLEM: ${originalProblem}\nPATTERN: ${card.domain_label} — ${card.source_title}. ${card.the_pattern}` },
+        ...history,
+      ];
+  const r = await authenticatedFetch({ model: "claude-sonnet-4-5", max_tokens: 1200, system: systemPrompt, messages });
   if (r.status === 402) throw new Error("free_limit_reached");
   if (!r.ok) throw new Error(`API ${r.status}`);
   return (await r.json()).content.filter(b => b.type === "text").map(b => b.text).join("");
@@ -295,28 +351,91 @@ function downloadSavedCards(cards, setExportStatus) {
   }
 }
 
-// ─── GO DEEPER MODAL ─────────────────────────────────────────────────
-function GoDeeperModal({ card, originalProblem, onClose }) {
-  const [exploring, setExploring] = useState(false);
-  const [exploration, setExploration] = useState(null);
+// ─── GO DEEPER MODAL (in-app conversation) ───────────────────────────
+function GoDeeperModal({ card, originalProblem, onClose, isPro, onHitFreeLimit }) {
+  const [messages, setMessages] = useState([]); // {role:'user'|'assistant', content}
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [input, setInput] = useState("");
+  const [followupsUsed, setFollowupsUsed] = useState(0);
+  const scrollRef = useRef(null);
   const d = DOMAINS.find(dm => dm.id === card.domain) || DOMAINS[8];
-  const handleExplore = async () => { setExploring(true); setError(null); try { setExploration(await exploreDeeper(card, originalProblem)); } catch { setError("Couldn't explore right now. Please try again."); } finally { setExploring(false); } };
+
+  const FREE_FOLLOWUPS = 2; // free users: opening + 2 follow-ups, then gated
+
+  const scrollToBottom = () => { setTimeout(() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }), 80); };
+
+  const runTurn = async (userText) => {
+    setLoading(true); setError(null);
+    try {
+      const history = messages.map(m => ({ role: m.role, content: m.content }));
+      if (userText) history.push({ role: "user", content: userText });
+      const reply = await exploreDeeper(card, originalProblem, history);
+      setMessages(prev => [...(userText ? [...prev, { role: "user", content: userText }] : prev), { role: "assistant", content: reply }]);
+      scrollToBottom();
+    } catch (e) {
+      if (e?.message?.startsWith("free_limit_reached")) { onHitFreeLimit && onHitFreeLimit(); onClose(); return; }
+      setError("Couldn't continue right now. Please try again.");
+    } finally { setLoading(false); }
+  };
+
+  const start = () => { runTurn(null); };
+
+  const sendFollowup = () => {
+    if (!input.trim() || loading) return;
+    if (!isPro && followupsUsed >= FREE_FOLLOWUPS) return; // gated
+    const text = input.trim();
+    setInput("");
+    setFollowupsUsed(n => n + 1);
+    runTurn(text);
+  };
+
+  const gated = !isPro && followupsUsed >= FREE_FOLLOWUPS;
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: "#18181f", border: `1px solid ${d.color}40`, borderRadius: "20px", padding: "32px", maxWidth: "620px", width: "100%", position: "relative", maxHeight: "88vh", overflowY: "auto" }}>
-        <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.06)", border: "none", borderRadius: "8px", width: "32px", height: "32px", color: "#fff", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: `${d.color}35`, border: `1px solid ${d.color}70`, borderRadius: "6px", padding: "4px 10px", marginBottom: "20px" }}>
-          <span style={{ fontSize: "14px" }}>{d.icon}</span>
-          <span style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", color: "#fff" }}>{card.domain_label}</span>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#18181f", border: `1px solid ${d.color}40`, borderRadius: "20px", padding: "0", maxWidth: "620px", width: "100%", position: "relative", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* Header */}
+        <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.06)", border: "none", borderRadius: "8px", width: "32px", height: "32px", color: "#fff", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>✕</button>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: `${d.color}35`, border: `1px solid ${d.color}70`, borderRadius: "6px", padding: "4px 10px", marginBottom: "10px" }}>
+            <span style={{ fontSize: "14px" }}>{d.icon}</span>
+            <span style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", color: "#fff" }}>Going deeper: {card.domain_label}</span>
+          </div>
+          <h2 style={{ fontFamily: "'Lato'", fontSize: "19px", fontWeight: 900, color: "#f5f5f5", margin: 0, lineHeight: 1.3, paddingRight: "40px" }}>{card.source_title}</h2>
         </div>
-        <h2 style={{ fontFamily: "'Lato'", fontSize: "22px", fontWeight: 900, color: "#f5f5f5", marginBottom: "8px", lineHeight: 1.3 }}>{card.source_title}</h2>
-        <p style={{ fontFamily: "'Lato'", fontSize: "14px", color: "rgba(255,255,255,0.5)", marginBottom: "24px" }}>{card.the_pattern}</p>
-        {!exploration && !exploring && <button onClick={handleExplore} style={{ width: "100%", padding: "15px", background: `linear-gradient(135deg, ${d.color}cc, ${d.color}88)`, color: "#fff", border: "none", borderRadius: "10px", fontFamily: "'Lato'", fontSize: "13px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer", boxShadow: `0 4px 16px ${d.color}30` }}>Explore This Pattern Now</button>}
-        {exploring && <div style={{ textAlign: "center", padding: "30px 0" }}><div style={{ width: "40px", height: "40px", borderRadius: "50%", background: `conic-gradient(${d.color},transparent)`, animation: "ptspin 1s linear infinite", opacity: 0.5, margin: "0 auto 14px" }} /><p style={{ fontFamily: "'Lato'", fontSize: "14px", color: "rgba(255,255,255,0.4)" }}>Exploring this pattern...</p></div>}
-        {error && <div style={{ background: "rgba(232,97,77,0.08)", border: "1px solid rgba(232,97,77,0.2)", borderRadius: "10px", padding: "14px", marginTop: "12px" }}><p style={{ fontFamily: "'Lato'", fontSize: "13px", color: "#e8614d" }}>{error}</p></div>}
-        {exploration && <div style={{ animation: "fadeUp 0.4s ease" }}><div style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", color: d.color, marginBottom: "12px" }}>Deep Exploration</div><div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", padding: "20px", fontFamily: "'Lato'", fontSize: "14px", color: "rgba(255,255,255,0.8)", lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{exploration}</div></div>}
+
+        {/* Conversation body */}
+        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: "14px", minHeight: "120px" }}>
+          {messages.length === 0 && !loading && (
+            <button onClick={start} style={{ width: "100%", padding: "15px", background: `linear-gradient(135deg, ${d.color}cc, ${d.color}88)`, color: "#fff", border: "none", borderRadius: "10px", fontFamily: "'Lato'", fontSize: "13px", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer", boxShadow: `0 4px 16px ${d.color}30` }}>Work this pattern into my problem →</button>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: m.role === "user" ? "82%" : "92%", background: m.role === "user" ? "rgba(255,255,255,0.06)" : `${d.color}12`, border: `1px solid ${m.role === "user" ? "rgba(255,255,255,0.1)" : d.color + "30"}`, borderRadius: m.role === "user" ? "12px 12px 3px 12px" : "12px 12px 12px 3px", padding: "12px 15px" }}>
+              <p style={{ fontFamily: "'Lato'", fontSize: "13.5px", color: "rgba(255,255,255,0.85)", lineHeight: 1.65, margin: 0, whiteSpace: "pre-wrap" }}>{m.content}</p>
+            </div>
+          ))}
+          {loading && <div style={{ alignSelf: "flex-start", padding: "8px 0" }}><div style={{ width: "32px", height: "32px", borderRadius: "50%", background: `conic-gradient(${d.color},transparent)`, animation: "ptspin 1s linear infinite", opacity: 0.5 }} /></div>}
+          {error && <p style={{ fontFamily: "'Lato'", fontSize: "13px", color: "#e8614d" }}>{error}</p>}
+        </div>
+
+        {/* Composer / gate */}
+        {messages.length > 0 && (
+          <div style={{ padding: "14px 24px 18px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            {gated ? (
+              <div style={{ background: "rgba(212,168,67,0.08)", border: "1px solid rgba(212,168,67,0.3)", borderRadius: "10px", padding: "14px 16px", textAlign: "center" }}>
+                <p style={{ fontFamily: "'Lato'", fontSize: "13px", color: "rgba(255,255,255,0.8)", margin: "0 0 10px", lineHeight: 1.5 }}>You've used your free follow-ups on this pattern. Go Pro for unlimited back-and-forth on every card.</p>
+                <button onClick={() => { onHitFreeLimit && onHitFreeLimit(); onClose(); }} style={{ background: "linear-gradient(135deg,#e8614d,#d4a843)", color: "#fff", border: "none", borderRadius: "8px", padding: "10px 20px", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, letterSpacing: "0.5px", cursor: "pointer" }}>Unlock unlimited Go Deeper</button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendFollowup()} placeholder={isPro ? "Ask a follow-up…" : `Ask a follow-up… (${FREE_FOLLOWUPS - followupsUsed} free left)`} disabled={loading}
+                  style={{ flex: 1, background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "9px", padding: "11px 14px", color: "#f1f1f1", fontFamily: "'Lato'", fontSize: "13px", outline: "none" }} />
+                <button onClick={sendFollowup} disabled={loading || !input.trim()} style={{ background: `${d.color}30`, border: `1px solid ${d.color}70`, borderRadius: "9px", padding: "11px 18px", color: "#fff", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, cursor: loading || !input.trim() ? "default" : "pointer", opacity: loading || !input.trim() ? 0.5 : 1 }}>Send</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -362,8 +481,23 @@ function InfoModal({ onClose }) {
 
 // ─── FLOATING ICONS ──────────────────────────────────────────────────
 function FloatingIcons() {
-  const ps=[{top:"8%",left:"5%",a:"float1",d:"18s",s:"28px",o:0.15},{top:"15%",right:"8%",a:"float2",d:"22s",s:"32px",o:0.12},{top:"35%",left:"3%",a:"float3",d:"20s",s:"24px",o:0.1},{top:"55%",right:"4%",a:"float1",d:"25s",s:"26px",o:0.13},{top:"70%",left:"7%",a:"float2",d:"19s",s:"30px",o:0.11},{top:"25%",left:"12%",a:"float3",d:"23s",s:"22px",o:0.08},{top:"45%",right:"10%",a:"float1",d:"21s",s:"28px",o:0.1},{top:"80%",right:"12%",a:"float2",d:"17s",s:"24px",o:0.12},{top:"10%",left:"25%",a:"float3",d:"24s",s:"20px",o:0.07},{top:"60%",left:"18%",a:"float1",d:"20s",s:"22px",o:0.09},{top:"40%",right:"20%",a:"float2",d:"26s",s:"26px",o:0.08},{top:"85%",left:"22%",a:"float3",d:"18s",s:"24px",o:0.1}];
-  return <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none"}}>{DOMAINS.slice(0,12).map((d,i)=>{const p=ps[i];return <span key={d.id} style={{position:"absolute",top:p.top,left:p.left,right:p.right,fontSize:p.s,opacity:p.o,animation:`${p.a} ${p.d} ease-in-out infinite`,filter:"blur(0.5px)"}}>{d.icon}</span>;})}</div>;
+  // Positioned toward the left/right edges (the empty gutters on desktop), kept subtle
+  // so they never overwhelm the centered text. Mobile naturally clips the far edges.
+  const ps=[
+    {top:"6%",left:"2%",a:"float1",d:"18s",s:"52px",o:0.16},
+    {top:"12%",right:"3%",a:"float2",d:"22s",s:"56px",o:0.15},
+    {top:"30%",left:"1%",a:"float3",d:"20s",s:"48px",o:0.14},
+    {top:"48%",right:"2%",a:"float1",d:"25s",s:"54px",o:0.16},
+    {top:"66%",left:"3%",a:"float2",d:"19s",s:"50px",o:0.15},
+    {top:"82%",right:"3%",a:"float3",d:"23s",s:"48px",o:0.14},
+    {top:"20%",left:"6%",a:"float1",d:"21s",s:"44px",o:0.12},
+    {top:"58%",right:"6%",a:"float2",d:"17s",s:"46px",o:0.13},
+    {top:"88%",left:"7%",a:"float3",d:"24s",s:"42px",o:0.12},
+    {top:"38%",right:"7%",a:"float1",d:"20s",s:"44px",o:0.12},
+    {top:"74%",left:"1%",a:"float2",d:"26s",s:"50px",o:0.14},
+    {top:"4%",right:"8%",a:"float3",d:"18s",s:"42px",o:0.11},
+  ];
+  return <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none"}}>{DOMAINS.slice(0,12).map((d,i)=>{const p=ps[i];return <span key={d.id} style={{position:"absolute",top:p.top,left:p.left,right:p.right,fontSize:p.s,opacity:p.o,animation:`${p.a} ${p.d} ease-in-out infinite`}}>{d.icon}</span>;})}</div>;
 }
 
 function FEARBar({ activeStep }) {
@@ -625,7 +759,7 @@ function ShareModal({ card, onClose, onImageSaved }) {
 }
 
 // ─── PATTERN CARD ────────────────────────────────────────────────────
-function PatternCard({ card, index, isVisible, onGoDeeper, onSave, isSaved, onRemove, showRemove, blurred, onShare, canGoDeeper = true, onLockedClick }) {
+function PatternCard({ card, index, isVisible, onGoDeeper, onSave, isSaved, onRemove, showRemove, blurred, onShare, canGoDeeper = true, onLockedClick, onRabbitHole, canRabbitHole = true, onRabbitLocked }) {
   const [flipped, setFlipped] = useState(false);
   const [fH, setFH] = useState(0);
   const [bH, setBH] = useState(0);
@@ -690,13 +824,34 @@ function PatternCard({ card, index, isVisible, onGoDeeper, onSave, isSaved, onRe
             <p style={{ fontFamily: "'Lato'", fontSize: "15px", color: "rgba(255,255,255,0.92)", lineHeight: 1.55 }}>{card.the_steal}</p>
           </div>
           {card.precedent && <div style={{ marginBottom: "14px", paddingLeft: "12px", borderLeft: `2px solid ${d.color}60` }}><div style={{ fontFamily: "'Lato'", fontSize: "9px", fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "3px" }}>Already stolen by</div><p style={{ fontFamily: "'Lato'", fontSize: "13px", color: "rgba(255,255,255,0.6)", fontStyle: "italic" }}>{card.precedent}</p></div>}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px", marginTop: "18px", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "12px" }}>
-            <button onClick={e => { e.stopPropagation(); if (canGoDeeper) onGoDeeper(card); else if (onLockedClick) onLockedClick(); }}
-              title={canGoDeeper ? "Go Deeper" : "Available with Pro — tap to learn more"}
-              style={{ background: canGoDeeper ? `${d.color}35` : "rgba(255,255,255,0.04)", borderRadius: "6px", padding: "7px 14px", border: canGoDeeper ? `1px solid ${d.color}80` : "1px solid rgba(255,255,255,0.08)", cursor: "pointer", fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: canGoDeeper ? "#fff" : "rgba(255,255,255,0.4)", letterSpacing: "1px", textTransform: "uppercase", opacity: canGoDeeper ? 1 : 0.7 }}
-              onMouseEnter={e => { if (canGoDeeper) e.currentTarget.style.background = `${d.color}55`; }} onMouseLeave={e => { if (canGoDeeper) e.currentTarget.style.background = `${d.color}35`; }}>
-              {canGoDeeper ? "Go Deeper" : "🔒 Go Deeper"}
-            </button>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginTop: "18px", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "12px" }}>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              {/* Go Deeper — with hover tooltip above */}
+              <span style={{ position: "relative", display: "inline-flex" }}
+                onMouseEnter={e => { const t = e.currentTarget.querySelector(".gd-tip"); if (t) t.style.display = "block"; }}
+                onMouseLeave={e => { const t = e.currentTarget.querySelector(".gd-tip"); if (t) t.style.display = "none"; }}>
+                <span className="gd-tip" style={{ display: "none", position: "absolute", bottom: "120%", left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap", background: "#000", border: `1px solid ${d.color}60`, borderRadius: "7px", padding: "6px 10px", fontFamily: "'Lato'", fontSize: "10px", color: "rgba(255,255,255,0.85)", zIndex: 20, fontWeight: 400 }}>Apply this idea to your problem</span>
+                <button onClick={e => { e.stopPropagation(); if (canGoDeeper) onGoDeeper(card); else if (onLockedClick) onLockedClick(); }}
+                  style={{ background: canGoDeeper ? `${d.color}35` : "rgba(255,255,255,0.04)", borderRadius: "6px", padding: "7px 13px", border: canGoDeeper ? `1px solid ${d.color}80` : "1px solid rgba(255,255,255,0.08)", cursor: "pointer", fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: canGoDeeper ? "#fff" : "rgba(255,255,255,0.4)", letterSpacing: "0.5px", textTransform: "uppercase", opacity: canGoDeeper ? 1 : 0.7, display: "inline-flex", alignItems: "center", gap: "5px" }}
+                  onMouseEnter={e => { if (canGoDeeper) e.currentTarget.style.background = `${d.color}55`; }} onMouseLeave={e => { if (canGoDeeper) e.currentTarget.style.background = `${d.color}35`; }}>
+                  <span style={{ fontSize: "13px", lineHeight: 1 }}>↓</span> {canGoDeeper ? "Go Deeper" : "🔒 Go Deeper"}
+                </button>
+              </span>
+              {/* Rabbit Hole — with hover tooltip above */}
+              {onRabbitHole && (
+                <span style={{ position: "relative", display: "inline-flex" }}
+                  onMouseEnter={e => { const t = e.currentTarget.querySelector(".rh-tip"); if (t) t.style.display = "block"; }}
+                  onMouseLeave={e => { const t = e.currentTarget.querySelector(".rh-tip"); if (t) t.style.display = "none"; }}>
+                  <span className="rh-tip" style={{ display: "none", position: "absolute", bottom: "120%", left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap", background: "#000", border: "1px solid rgba(127,119,221,0.5)", borderRadius: "7px", padding: "6px 10px", fontFamily: "'Lato'", fontSize: "10px", color: "rgba(255,255,255,0.85)", zIndex: 20, fontWeight: 400 }}>Jump to where this idea leads next</span>
+                  <button onClick={e => { e.stopPropagation(); if (canRabbitHole) onRabbitHole(card); else if (onRabbitLocked) onRabbitLocked(); }}
+                    style={{ background: canRabbitHole ? "rgba(127,119,221,0.18)" : "rgba(255,255,255,0.04)", borderRadius: "6px", padding: "7px 13px", border: canRabbitHole ? "1px solid rgba(127,119,221,0.6)" : "1px solid rgba(255,255,255,0.08)", cursor: "pointer", fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: canRabbitHole ? "#AFA9EC" : "rgba(255,255,255,0.4)", letterSpacing: "0.5px", textTransform: "uppercase", opacity: canRabbitHole ? 1 : 0.7, display: "inline-flex", alignItems: "center", gap: "5px" }}
+                    onMouseEnter={e => { if (canRabbitHole) e.currentTarget.style.background = "rgba(127,119,221,0.3)"; }} onMouseLeave={e => { if (canRabbitHole) e.currentTarget.style.background = "rgba(127,119,221,0.18)"; }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="5 9 5 5 9 5"/><polyline points="15 5 19 5 19 9"/><polyline points="19 15 19 19 15 19"/><polyline points="9 19 5 19 5 15"/></svg>
+                    {canRabbitHole ? "Rabbit Hole" : "🔒 Rabbit Hole"}
+                  </button>
+                </span>
+              )}
+            </div>
             <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: "#fff", letterSpacing: "2.5px", background: `${d.color}55`, borderRadius: "5px", padding: "4px 14px" }}>← FLIP</span>
           </div>
         </div>
@@ -705,12 +860,150 @@ function PatternCard({ card, index, isVisible, onGoDeeper, onSave, isSaved, onRe
   );
 }
 
-function LoadingSequence({ text }) {
-  const msgs = ["Breaking your problem into its core pieces","Scanning 27 domains for hidden patterns","Matching structural analogies","Preparing stolen ideas for reassembly"];
+// ─── RABBIT HOLE MODAL ───────────────────────────────────────────────
+function RabbitHoleModal({ seed, card, loading, onClose, onGoDeeper, onDigAgain, onSave, isSaved, canDig }) {
+  const seedD = seed ? (DOMAINS.find(dm => dm.id === seed.domain) || DOMAINS[8]) : DOMAINS[8];
+  const d = card ? (DOMAINS.find(dm => dm.id === card.domain) || DOMAINS[8]) : DOMAINS[8];
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#18181f", border: "1px solid rgba(127,119,221,0.4)", borderRadius: "20px", padding: "28px", maxWidth: "600px", width: "100%", position: "relative", maxHeight: "88vh", overflowY: "auto" }}>
+        <button onClick={onClose} style={{ position: "absolute", top: "16px", right: "16px", background: "rgba(255,255,255,0.06)", border: "none", borderRadius: "8px", width: "32px", height: "32px", color: "#fff", fontSize: "16px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>✕</button>
+
+        {/* Trail: seed -> new */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "18px", flexWrap: "wrap", paddingRight: "40px" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "6px", padding: "3px 9px", fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "rgba(255,255,255,0.6)" }}>{seedD.icon} {seed?.domain_label}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(127,119,221,0.8)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="5 9 5 5 9 5"/><polyline points="15 5 19 5 19 9"/><polyline points="19 15 19 19 15 19"/><polyline points="9 19 5 19 5 15"/></svg>
+          {card && <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", background: "rgba(127,119,221,0.18)", border: "1px solid rgba(127,119,221,0.5)", borderRadius: "6px", padding: "3px 9px", fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "#CECBF6" }}>{d.icon} {card.domain_label}</span>}
+        </div>
+
+        {loading && (
+          <div style={{ textAlign: "center", padding: "40px 0" }}>
+            <div style={{ width: "44px", height: "44px", borderRadius: "50%", background: "conic-gradient(#7F77DD,transparent)", animation: "ptspin 1.1s linear infinite", opacity: 0.6, margin: "0 auto 16px" }} />
+            <p style={{ fontFamily: "'Lato'", fontSize: "14px", color: "rgba(255,255,255,0.5)" }}>Falling down the rabbit hole…</p>
+          </div>
+        )}
+
+        {card && !loading && (
+          <div style={{ animation: "fadeUp 0.4s ease" }}>
+            <h2 style={{ fontFamily: "'Lato'", fontSize: "21px", fontWeight: 900, color: "#f5f5f5", marginBottom: "10px", lineHeight: 1.3 }}>{card.source_title}</h2>
+            <p style={{ fontFamily: "'Lato'", fontSize: "14px", color: "rgba(255,255,255,0.75)", lineHeight: 1.6, marginBottom: "14px" }}>{card.the_pattern}</p>
+            <div style={{ paddingLeft: "12px", borderLeft: "2px solid rgba(127,119,221,0.5)", marginBottom: "14px" }}>
+              <div style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "#AFA9EC", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "4px" }}>The connection</div>
+              <p style={{ fontFamily: "'Lato'", fontSize: "14px", color: "rgba(255,255,255,0.85)", lineHeight: 1.55 }}>{card.the_analogy}</p>
+            </div>
+            <div style={{ background: "rgba(212,168,67,0.08)", borderRadius: "10px", padding: "13px 15px", border: "1px solid rgba(212,168,67,0.2)", marginBottom: "18px" }}>
+              <div style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "#d4a843", textTransform: "uppercase", letterSpacing: "1.5px", marginBottom: "5px" }}>⚡ The Steal</div>
+              <p style={{ fontFamily: "'Lato'", fontSize: "14px", color: "rgba(255,255,255,0.92)", lineHeight: 1.55 }}>{card.the_steal}</p>
+            </div>
+            <div style={{ display: "flex", gap: "9px", flexWrap: "wrap" }}>
+              <button onClick={() => onGoDeeper(card)} style={{ flex: "1 1 auto", background: `${d.color}30`, border: `1px solid ${d.color}70`, borderRadius: "9px", padding: "11px", color: "#fff", fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", cursor: "pointer" }}>↓ Go Deeper on this</button>
+              <button onClick={() => onDigAgain(card)} disabled={!canDig} style={{ flex: "1 1 auto", background: canDig ? "rgba(127,119,221,0.18)" : "rgba(255,255,255,0.04)", border: canDig ? "1px solid rgba(127,119,221,0.6)" : "1px solid rgba(255,255,255,0.08)", borderRadius: "9px", padding: "11px", color: canDig ? "#AFA9EC" : "rgba(255,255,255,0.4)", fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", cursor: canDig ? "pointer" : "default" }}>{canDig ? "Dig deeper ⇲" : "🔒 Dig deeper"}</button>
+              <button onClick={() => onSave(card)} style={{ background: isSaved ? "rgba(212,168,67,0.2)" : "rgba(255,255,255,0.05)", border: `1px solid ${isSaved ? "rgba(212,168,67,0.5)" : "rgba(255,255,255,0.12)"}`, borderRadius: "9px", padding: "11px 14px", color: isSaved ? "#d4a843" : "rgba(255,255,255,0.7)", fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, cursor: "pointer" }}>{isSaved ? "✓ Saved" : "🔖 Save"}</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LoadingSequence({ text, done }) {
+  const lines = [
+    "Fracturing your problem into its real tensions",
+    "Hmm. The obvious answer is right there… ignoring it",
+    "Reaching past your own industry on purpose",
+    "Rifling through ornithology, ritual, deep biology…",
+    "That one's too clever to be useful. Dropping it",
+    "Wait — there's something in an unexpected corner",
+    "Ooh. That's quite profound… let me pull the thread",
+    "No, no — nobody would think to look here. Perfect",
+    "Testing whether this pattern actually maps to you",
+    "Almost. Let me find something a little more mind-bending",
+  ];
+  const [order] = useState(() => {
+    const a = [...lines];
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return ["Fracturing your problem into its real tensions", ...a.filter(x => x !== "Fracturing your problem into its real tensions")];
+  });
   const [c, setC] = useState(0);
-  const [dots, setDots] = useState("");
-  useEffect(() => { const m=setInterval(()=>setC(p=>Math.min(p+1,3)),4500); const d=setInterval(()=>setDots(p=>p.length>=3?"":p+"."),500); return()=>{clearInterval(m);clearInterval(d);}; }, []);
-  return <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"70px 20px",gap:"28px"}}><FEARBar activeStep={c} /><div style={{width:"64px",height:"64px",borderRadius:"50%",background:`conic-gradient(${FEAR_STEPS[c]?.color},transparent)`,animation:"ptspin 1.2s linear infinite",opacity:0.5}} /><p style={{fontFamily:"'Lato'",fontSize:"16px",color:"rgba(255,255,255,0.5)",textAlign:"center"}}>{text||msgs[c]}{dots}</p></div>;
+  const barStep = Math.min(Math.floor((c / order.length) * 4), 3);
+  const ballRef = useRef(null);
+  const rafRef = useRef(null);
+  const startRef = useRef(null);
+  const finishingRef = useRef(false);
+
+  // Spiral geometry (viewBox 180x180) — slightly smaller than the demo
+  const cx = 90, cy = 90, turns = 4, rMax = 76, rMin = 5;
+  const pointAt = (t) => {
+    const ang = t * turns * 2 * Math.PI;
+    const r = rMax - (rMax - rMin) * t;
+    return { x: cx + r * Math.cos(ang), y: cy + r * Math.sin(ang) };
+  };
+  const spiralPath = (() => {
+    let d = "";
+    for (let i = 0; i <= 300; i++) { const p = pointAt(i / 300); d += (i === 0 ? "M" : "L") + p.x.toFixed(1) + " " + p.y.toFixed(1) + " "; }
+    return d;
+  })();
+
+  // Line cycling
+  useEffect(() => {
+    const m = setInterval(() => setC(p => (p + 1) % order.length), 2100);
+    return () => clearInterval(m);
+  }, [order.length]);
+
+  // Ball animation loop
+  useEffect(() => {
+    const descendMs = 7200; // slightly slower than demo's 6000
+    const frame = (ts) => {
+      if (startRef.current === null) startRef.current = ts;
+      const elapsed = ts - startRef.current;
+      const t = (elapsed % descendMs) / descendMs;
+      const p = pointAt(t);
+      const ball = ballRef.current;
+      if (ball) {
+        ball.style.left = p.x + "px";
+        ball.style.top = p.y + "px";
+        ball.style.transform = `translate(-50%,-50%) scale(${1 - 0.35 * t})`;
+        ball.style.opacity = 1;
+      }
+      if (!finishingRef.current) rafRef.current = requestAnimationFrame(frame);
+    };
+    rafRef.current = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, []);
+
+  // On done -> drop to center and vanish
+  useEffect(() => {
+    if (!done) return;
+    finishingRef.current = true;
+    cancelAnimationFrame(rafRef.current);
+    const ball = ballRef.current;
+    if (ball) {
+      ball.style.transition = "left 0.5s ease-in, top 0.5s ease-in, transform 0.5s ease-in";
+      ball.style.left = cx + "px"; ball.style.top = cy + "px";
+      ball.style.transform = "translate(-50%,-50%) scale(0.6)";
+      setTimeout(() => {
+        ball.style.transition = "top 0.6s cubic-bezier(0.5,0,1,0.5), opacity 0.6s ease-in, transform 0.6s ease-in";
+        ball.style.top = (cy + 64) + "px"; ball.style.opacity = 0;
+        ball.style.transform = "translate(-50%,-50%) scale(0.2)";
+      }, 520);
+    }
+  }, [done]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "50px 20px", gap: "22px" }}>
+      <FEARBar activeStep={barStep} />
+      <div style={{ position: "relative", width: "180px", height: "180px" }}>
+        <svg width="180" height="180" viewBox="0 0 180 180" style={{ position: "absolute", inset: 0 }}>
+          <path d={spiralPath} fill="none" stroke="rgba(232,190,90,0.55)" strokeWidth="1.5" />
+        </svg>
+        <div ref={ballRef} style={{ position: "absolute", width: "13px", height: "13px", borderRadius: "50%", background: "#5DE0C4", boxShadow: "0 0 14px 3px #5DE0C4, 0 0 4px 1px #fff", top: 0, left: 0, transform: "translate(-50%,-50%)" }} />
+      </div>
+      <p key={c} style={{ fontFamily: "'Lato'", fontSize: "15px", fontWeight: 400, color: "rgba(255,255,255,0.72)", textAlign: "center", minHeight: "22px", maxWidth: "400px", lineHeight: 1.5, animation: "fadeUp 0.4s ease" }}>
+        {text || order[c]}
+      </p>
+    </div>
+  );
 }
 
 // ─── SAVED CARDS VIEW ────────────────────────────────────────────────
@@ -763,7 +1056,12 @@ export default function PatternThief() {
   const [cardsVisible, setCardsVisible] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [loadingText, setLoadingText] = useState(null);
+  const [loadingDone, setLoadingDone] = useState(false);
   const [deeperCard, setDeeperCard] = useState(null);
+  const [rabbitCard, setRabbitCard] = useState(null);    // the result card from a rabbit hole jump
+  const [rabbitSeed, setRabbitSeed] = useState(null);    // the card we jumped from
+  const [rabbitLoading, setRabbitLoading] = useState(false);
+  const [rabbitJumps, setRabbitJumps] = useState(0);     // free-tier jump counter
   const [shareCard, setShareCard] = useState(null);
   const [savedCards, setSavedCards] = useState([]);
   const [searchesUsed, setSearchesUsed] = useState(0);
@@ -784,7 +1082,7 @@ export default function PatternThief() {
   const searchesAllowed = (userStatus?.searches_allowed) ?? (FREE_LIMIT + bonusSearches);
   const effectiveSearchesUsed = userStatus?.searches_used ?? searchesUsed;
   const isAuthenticated = !!authUser;
-  const isProEffective = userStatus?.is_pro ?? isPro;
+  const isProEffective = (userStatus?.is_pro === true) || isPro === true;
   // Allow up to 1 preview attempt beyond the free limit
   const canSearch = isProEffective || effectiveSearchesUsed < searchesAllowed + 1;
 
@@ -871,6 +1169,24 @@ export default function PatternThief() {
 
   const isCardSaved = (c) => savedCards.some(sc => sc.source_title === c.source_title && sc.domain === c.domain);
 
+  const FREE_RABBIT_JUMPS = 2;
+  const handleRabbitHole = async (card) => {
+    // Gate: free users get FREE_RABBIT_JUMPS jumps, then upgrade prompt
+    if (!isProEffective && rabbitJumps >= FREE_RABBIT_JUMPS) { setShowUpgrade(true); return; }
+    setRabbitSeed(card); setRabbitCard(null); setRabbitLoading(true);
+    try {
+      const data = await rabbitHole(card);
+      const newCard = data?.cards?.[0];
+      if (!newCard) throw new Error("No card returned");
+      newCard.original_problem = card.original_problem || problem;
+      setRabbitCard(newCard);
+      if (!isProEffective) setRabbitJumps(n => n + 1);
+    } catch (e) {
+      if (e?.message?.startsWith("free_limit_reached")) { setShowUpgrade(true); setRabbitSeed(null); }
+      else setError("Couldn't dig that rabbit hole. Try again.");
+    } finally { setRabbitLoading(false); }
+  };
+
   const handleSaveCard = async (card) => {
     if (isCardSaved(card)) return;
     const cardWithMeta = { ...card, saved_at: new Date().toISOString(), original_problem: problem };
@@ -939,7 +1255,10 @@ export default function PatternThief() {
       setSearchesUsed(newCount);
       storageSet("searches-used", newCount).catch(() => {});
       recordRecentPrompt(problem);
-      setResults(data); setStep(3);
+      // Trigger the spiral ball's drop-and-vanish, then reveal results after a short beat
+      setLoadingDone(true);
+      await new Promise(res => setTimeout(res, 850));
+      setResults(data); setStep(3); setLoadingDone(false);
       setTimeout(() => setCardsVisible(true), 300);
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 400);
     } catch (err) {
@@ -970,7 +1289,8 @@ export default function PatternThief() {
       <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, background: "radial-gradient(ellipse at 30% 20%, rgba(232,97,77,0.04), transparent 50%), radial-gradient(ellipse at 70% 70%, rgba(42,157,143,0.04), transparent 50%), radial-gradient(ellipse at 50% 50%, rgba(212,168,67,0.03), transparent 60%)" }} />
 
       {showInfo && <InfoModal onClose={() => setShowInfo(false)} />}
-      {deeperCard && <GoDeeperModal card={deeperCard} originalProblem={deeperCard.original_problem || problem} onClose={() => setDeeperCard(null)} />}
+      {deeperCard && <GoDeeperModal card={deeperCard} originalProblem={deeperCard.original_problem || problem} onClose={() => setDeeperCard(null)} isPro={isProEffective} onHitFreeLimit={() => setShowUpgrade(true)} />}
+      {(rabbitSeed || rabbitLoading) && <RabbitHoleModal seed={rabbitSeed} card={rabbitCard} loading={rabbitLoading} onClose={() => { setRabbitSeed(null); setRabbitCard(null); }} onGoDeeper={(c) => { setRabbitSeed(null); setDeeperCard(c); }} onDigAgain={handleRabbitHole} onSave={handleSaveCard} isSaved={rabbitCard ? isCardSaved(rabbitCard) : false} canDig={isProEffective || rabbitJumps < FREE_RABBIT_JUMPS} />}
       {shareCard && <ShareModal card={shareCard} onClose={() => setShareCard(null)} onImageSaved={() => { if (!isAuthenticated) setShowSavePrompt(true); }} />}
       {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} userStatus={userStatus} isAuthenticated={isAuthenticated} onRequestAuth={handleRequestAuth} onPurchaseSuccess={refreshUserStatus} />}
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} context={authContext} />}
@@ -1056,40 +1376,20 @@ export default function PatternThief() {
             </div>
             <div style={{ position: "relative", zIndex: 2, animation: "fadeUp 0.8s ease" }}>
               <h1 style={{ fontFamily: "'Lato'", fontSize: "clamp(42px, 8vw, 72px)", fontWeight: 900, lineHeight: 1.05, marginBottom: "20px", textAlign: "center", color: "#f5f5f5" }}>Pattern Thief</h1>
-              <p style={{ fontFamily: "'Lato'", fontSize: "17px", fontWeight: 300, color: "rgba(255,255,255,0.65)", textAlign: "center", maxWidth: "560px", margin: "0 auto 36px", lineHeight: 1.65 }}>
-                For the curious, the stuck, and the slightly bored. Discover and steal something the algorithm wouldn't show you.
+              <p style={{ fontFamily: "'Lato'", fontSize: "18px", fontWeight: 500, color: "rgba(255,255,255,0.92)", textAlign: "center", maxWidth: "560px", margin: "0 auto 10px", lineHeight: 1.5 }}>
+                For the curious, the uninspired, and the digitally trapped.
+              </p>
+              <p style={{ fontFamily: "'Lato'", fontSize: "15px", fontWeight: 400, color: "#d4a843", textAlign: "center", maxWidth: "540px", margin: "0 auto 30px", lineHeight: 1.6 }}>
+                Not another chatbot surfacing obvious answers. A thinking machine stealing patterns from fields you'd never think to look.
               </p>
               <div style={{ width: "60px", height: "2px", background: "linear-gradient(90deg, #e8614d, #d4a843, #2a9d8f)", margin: "0 auto 28px" }} />
 
-              {/* PATTERN OF THE DAY — replaces the old preview box */}
+              {/* PATTERN OF THE DAY — slim daily hook */}
               <div style={{ marginBottom: "20px" }}>
                 <PatternOfTheDay onExplore={() => { document.querySelector("#pt-problem-input")?.scrollIntoView({ behavior: "smooth", block: "center" }); document.querySelector("#pt-problem-input")?.focus(); }} />
               </div>
 
-              {/* Ghost chips — returning users see their own recent questions (gold, ↺), mixed with fresh starters (grey) */}
-              <div style={{ textAlign: "center", marginBottom: "10px" }}>
-                <span style={{ fontFamily: "'Lato'", fontSize: "10px", color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700 }}>
-                  {recentPrompts.length > 0 ? "Pick up where you left off, or start fresh" : "Try one of these or describe your own"}
-                </span>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", justifyContent: "center", marginBottom: "20px" }}>
-                {recentPrompts.map((rp, i) => {
-                  const short = rp.length > 34 ? rp.slice(0, 32) + "…" : rp;
-                  return (
-                    <button key={`recent-${i}`} onClick={() => setProblem(rp)}
-                      style={{ background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.35)", borderRadius: "16px", padding: "6px 13px", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "#d4a843", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                      <span style={{ fontSize: "11px" }}>↺</span> {short}
-                    </button>
-                  );
-                })}
-                {STARTER_CHIPS.slice(0, Math.max(2, 4 - recentPrompts.length)).map((chip, i) => (
-                  <button key={`starter-${i}`} onClick={() => setProblem(chip.prompt)}
-                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "16px", padding: "6px 13px", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)", cursor: "pointer", transition: "all 0.2s" }}>
-                    {chip.label}
-                  </button>
-                ))}
-              </div>
-
+              {/* INPUT BOX — primary action, now directly after Pattern of the Day */}
               <div style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "20px", padding: "28px", backdropFilter: "blur(12px)" }}>
                 <textarea id="pt-problem-input" value={problem} onChange={e => setProblem(e.target.value)} placeholder="e.g. My customers love our product during the trial but 60% don't convert to paid..." rows={5}
                   style={{ width: "100%", background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", padding: "18px", color: "#f1f1f1", fontFamily: "'Lato'", fontSize: "15px", fontWeight: 300, lineHeight: 1.65, resize: "vertical", outline: "none", boxSizing: "border-box" }}
@@ -1105,12 +1405,21 @@ export default function PatternThief() {
                     <div style={{ display: "flex", alignItems: "center", gap: "7px", marginBottom: "12px" }}>
                       <span style={{ fontSize: "15px" }}>🎯</span>
                       <span style={{ fontFamily: "'Lato'", fontSize: "13px", fontWeight: 700, color: "#f5f5f5" }}>Theft radius</span>
+                      <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}
+                        onMouseEnter={e => { const t = e.currentTarget.querySelector(".radius-tip"); if (t) t.style.display = "block"; }}
+                        onMouseLeave={e => { const t = e.currentTarget.querySelector(".radius-tip"); if (t) t.style.display = "none"; }}
+                        onClick={e => { const t = e.currentTarget.querySelector(".radius-tip"); if (t) t.style.display = t.style.display === "block" ? "none" : "block"; }}>
+                        <span style={{ width: "15px", height: "15px", borderRadius: "50%", border: "1px solid rgba(255,255,255,0.35)", color: "rgba(255,255,255,0.55)", fontSize: "10px", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontStyle: "italic" }}>i</span>
+                        <span className="radius-tip" style={{ display: "none", position: "absolute", bottom: "130%", left: "50%", transform: "translateX(-50%)", width: "240px", background: "#000", border: "1px solid rgba(212,168,67,0.4)", borderRadius: "8px", padding: "10px 12px", fontFamily: "'Lato'", fontSize: "11px", lineHeight: 1.5, color: "rgba(255,255,255,0.8)", zIndex: 10, fontWeight: 400 }}>
+                          How far Pattern Thief reaches for its sources — from adjacent fields (Near) to the genuinely strange (Wild). This is guidance to the AI, not a hard filter: it steers the results but won't be mechanically precise, so nearby stops may overlap.
+                        </span>
+                      </span>
                     </div>
-                    <div style={{ position: "relative", marginBottom: "2px" }}>
-                      <div style={{ height: "5px", borderRadius: "3px", background: "linear-gradient(90deg,#5DCAA5,#a8c14d,#d4a843,#e8614d)" }} />
-                      <div style={{ position: "absolute", top: "50%", left: `${[0, 33.33, 66.66, 100][theftRadius]}%`, transform: "translate(-50%,-50%)", width: "20px", height: "20px", borderRadius: "50%", background: "#d4a843", border: "3px solid #1c1c24", boxShadow: "0 2px 8px rgba(0,0,0,0.4)", pointerEvents: "none" }} />
+                    <div style={{ position: "relative", height: "20px" }}>
+                      <div style={{ position: "absolute", left: 0, right: 0, top: "50%", transform: "translateY(-50%)", height: "5px", borderRadius: "3px", background: "linear-gradient(90deg,#5DCAA5,#a8c14d,#d4a843,#e8614d)" }} />
+                      <div style={{ position: "absolute", top: "50%", left: `${[2, 35, 65, 98][theftRadius]}%`, transform: "translate(-50%,-50%)", width: "18px", height: "18px", borderRadius: "50%", background: "#d4a843", border: "3px solid #1c1c24", boxShadow: "0 2px 8px rgba(0,0,0,0.4)", pointerEvents: "none" }} />
                       <input type="range" min={0} max={3} value={theftRadius} onChange={e => setTheftRadius(parseInt(e.target.value))}
-                        style={{ width: "100%", opacity: 0, height: "22px", margin: "-13px 0 0", cursor: "pointer", position: "relative", zIndex: 2 }} />
+                        style={{ width: "100%", opacity: 0, height: "20px", margin: 0, cursor: "pointer", position: "absolute", top: 0, left: 0, zIndex: 2 }} />
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px" }}>
                       {THEFT_RADIUS_STOPS.map((stop, i) => (
@@ -1128,6 +1437,30 @@ export default function PatternThief() {
                   style={{ width: "100%", padding: "16px", background: problem.trim() ? "linear-gradient(135deg, #e8614d, #d4a843)" : "rgba(255,255,255,0.08)", color: problem.trim() ? "#fff" : "rgba(255,255,255,0.5)", border: "none", borderRadius: "12px", fontFamily: "'Lato'", fontSize: "13px", fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", cursor: problem.trim() ? "pointer" : "default", boxShadow: problem.trim() ? "0 4px 20px rgba(232,97,77,0.25)" : "none" }}>
                   Find Hidden Patterns
                 </button>
+              </div>
+
+              {/* Ghost chips — now BELOW the input. Returning users see their own recent questions (gold, ↺) mixed with fresh starters (grey) */}
+              <div style={{ textAlign: "center", margin: "20px 0 10px" }}>
+                <span style={{ fontFamily: "'Lato'", fontSize: "10px", color: "rgba(255,255,255,0.45)", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 700 }}>
+                  {recentPrompts.length > 0 ? "Pick up where you left off, or start fresh" : "Need a starting point? Try one of these"}
+                </span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", justifyContent: "center", marginBottom: "10px" }}>
+                {recentPrompts.map((rp, i) => {
+                  const short = rp.length > 34 ? rp.slice(0, 32) + "…" : rp;
+                  return (
+                    <button key={`recent-${i}`} onClick={() => setProblem(rp)}
+                      style={{ background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.35)", borderRadius: "16px", padding: "6px 13px", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "#d4a843", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                      <span style={{ fontSize: "11px" }}>↺</span> {short}
+                    </button>
+                  );
+                })}
+                {STARTER_CHIPS.slice(0, Math.max(2, 4 - recentPrompts.length)).map((chip, i) => (
+                  <button key={`starter-${i}`} onClick={() => setProblem(chip.prompt)}
+                    style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "16px", padding: "6px 13px", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)", cursor: "pointer", transition: "all 0.2s" }}>
+                    {chip.label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -1154,7 +1487,7 @@ export default function PatternThief() {
           </div>
         )}
 
-        {step === 2 && <LoadingSequence text={loadingText} />}
+        {step === 2 && <LoadingSequence text={loadingText} done={loadingDone} />}
 
         {/* RESULTS */}
         {step === 3 && results && (
@@ -1162,20 +1495,20 @@ export default function PatternThief() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: "14px" }}>
                 <h1 style={{ fontFamily: "'Lato'", fontSize: "clamp(28px, 5vw, 38px)", fontWeight: 900, color: "#f5f5f5" }}>Pattern Thief</h1>
-                {!isPro && (searchesAllowed - searchesUsed) === 2 && (
+                {!isProEffective && (searchesAllowed - searchesUsed) === 2 && (
                   <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 400, color: "rgba(255,255,255,0.3)" }}>
                     2 searches left
                   </span>
                 )}
-                {!isPro && (searchesAllowed - searchesUsed) === 1 && (
+                {!isProEffective && (searchesAllowed - searchesUsed) === 1 && (
                   <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 400, color: "rgba(232,97,77,0.7)" }}>
                     1 search left — make it count
                   </span>
                 )}
-                {!isPro && (searchesAllowed - searchesUsed) <= 0 && (
+                {!isProEffective && (searchesAllowed - searchesUsed) <= 0 && (
                   <span style={{ fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: "#e8614d" }}>No searches left</span>
                 )}
-                {isPro && <span style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "#d4a843", background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.3)", borderRadius: "4px", padding: "3px 8px", letterSpacing: "1px", textTransform: "uppercase" }}>Pro</span>}
+                {isProEffective && <span style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, color: "#d4a843", background: "rgba(212,168,67,0.1)", border: "1px solid rgba(212,168,67,0.3)", borderRadius: "4px", padding: "3px 8px", letterSpacing: "1px", textTransform: "uppercase" }}>Pro</span>}
               </div>
               <button onClick={() => setShowInfo(true)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: "rgba(255,255,255,0.55)" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.55)"; }}>How It Works</button>
@@ -1190,7 +1523,7 @@ export default function PatternThief() {
               {DOMAINS.filter(dm => results.cards?.some(c => c.domain === dm.id)).map(dm => <span key={dm.id} style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, padding: "4px 10px", borderRadius: "5px", background: `${dm.color}30`, color: dm.color, border: `1px solid ${dm.color}60`, filter: "brightness(1.2)" }}>{dm.icon} {dm.label}</span>)}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 360px), 1fr))", gap: "18px", marginBottom: "32px", alignItems: "start" }}>
-              {results.cards?.map((card, i) => <PatternCard key={i} card={card} index={i} isVisible={cardsVisible} onGoDeeper={setDeeperCard} onSave={handleSaveCard} isSaved={isCardSaved(card)} onRemove={handleRemoveCard} showRemove={false} blurred={!!results._is_preview} onShare={setShareCard} canGoDeeper={canSearch && !results._is_preview} onLockedClick={() => setShowUpgrade(true)} />)}
+              {results.cards?.map((card, i) => <PatternCard key={i} card={card} index={i} isVisible={cardsVisible} onGoDeeper={setDeeperCard} onSave={handleSaveCard} isSaved={isCardSaved(card)} onRemove={handleRemoveCard} showRemove={false} blurred={!!results._is_preview} onShare={setShareCard} canGoDeeper={canSearch && !results._is_preview} onLockedClick={() => setShowUpgrade(true)} onRabbitHole={!results._is_preview ? handleRabbitHole : undefined} canRabbitHole={isProEffective || rabbitJumps < FREE_RABBIT_JUMPS} onRabbitLocked={() => setShowUpgrade(true)} />)}
             </div>
             <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
               <button onClick={handleRefine} style={{ background: "rgba(212,168,67,0.08)", border: "1px solid rgba(212,168,67,0.25)", borderRadius: "10px", padding: "13px 24px", color: "#d4a843", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}

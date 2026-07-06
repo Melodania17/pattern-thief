@@ -6,10 +6,15 @@
 import React, { useState } from "react";
 import { PATTERN_OF_THE_DAY, getTodaysPatternIndex, formatTodayLabel } from "../lib/buildAData";
 
+// Session-level dismissal: once closed, stays closed for the whole session
+// (survives navigating away from and back to the home page). Resets on full reload.
+let sessionDismissed = false;
+
 export default function PatternOfTheDay({ onExplore }) {
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(getTodaysPatternIndex());
   const [rerolled, setRerolled] = useState(false);
+  const [dismissed, setDismissed] = useState(sessionDismissed);
 
   const p = PATTERN_OF_THE_DAY[idx];
 
@@ -18,6 +23,10 @@ export default function PatternOfTheDay({ onExplore }) {
     setIdx((idx + 1) % PATTERN_OF_THE_DAY.length);
     setRerolled(true);
   };
+
+  const dismiss = () => { sessionDismissed = true; setDismissed(true); };
+
+  if (dismissed || sessionDismissed) return null;
 
   if (!open) {
     return (
@@ -34,8 +43,9 @@ export default function PatternOfTheDay({ onExplore }) {
   }
 
   return (
-    <div style={{ background: "linear-gradient(145deg,#16161c,#1c1c24)", border: "1px solid rgba(212,168,67,0.3)", borderRadius: "14px", padding: "18px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+    <div style={{ background: "linear-gradient(145deg,#16161c,#1c1c24)", border: "1px solid rgba(212,168,67,0.3)", borderRadius: "14px", padding: "18px", position: "relative" }}>
+      <button onClick={dismiss} aria-label="Dismiss" style={{ position: "absolute", top: "12px", right: "12px", width: "24px", height: "24px", borderRadius: "6px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)", fontSize: "13px", lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>✕</button>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", paddingRight: "30px" }}>
         <span style={{ fontFamily: "'Lato'", fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", color: "#d4a843" }}>Pattern of the day</span>
         <span style={{ fontFamily: "'Lato'", fontSize: "11px", color: "rgba(255,255,255,0.35)" }}>{formatTodayLabel()}</span>
       </div>
@@ -47,7 +57,12 @@ export default function PatternOfTheDay({ onExplore }) {
       </div>
 
       <p style={{ fontFamily: "'Lato'", fontSize: "17px", fontWeight: 900, color: "#f5f5f5", margin: "0 0 8px", lineHeight: 1.35 }}>{p.title}</p>
-      <p style={{ fontFamily: "'Lato'", fontSize: "13px", lineHeight: 1.6, color: "rgba(255,255,255,0.7)", margin: 0 }}>{p.body}</p>
+      <p style={{ fontFamily: "'Lato'", fontSize: "13px", lineHeight: 1.6, color: "rgba(255,255,255,0.7)", margin: "0 0 12px" }}>{p.body}</p>
+      {p.detail && (
+        <div style={{ borderLeft: "2px solid rgba(212,168,67,0.4)", paddingLeft: "12px" }}>
+          <p style={{ fontFamily: "'Lato'", fontSize: "12.5px", lineHeight: 1.65, color: "rgba(255,255,255,0.6)", margin: 0 }}>{p.detail}</p>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: "9px", marginTop: "16px" }}>
         <button onClick={() => onExplore && onExplore()} style={{ flex: 1, background: "rgba(212,168,67,0.15)", border: "1px solid rgba(212,168,67,0.4)", borderRadius: "8px", padding: "10px", color: "#d4a843", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>Explore your own problem</button>
