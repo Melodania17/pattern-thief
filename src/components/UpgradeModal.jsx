@@ -55,7 +55,7 @@ export default function UpgradeModal({ onClose, userStatus, isAuthenticated, onR
 
         {/* Features block 1 */}
         <FeatureBlock title="Here's everything you unlock" features={[
-          { emphasis: "Unlimited pattern searches", suffix: " across 27 unexpected domains" },
+          { emphasis: "Unlimited pattern searches", suffix: " across 28 unexpected domains" },
           { emphasis: "Unlimited Go Deeper", suffix: " explorations on every card" },
           { text: "Save unlimited cards to your personal collection" },
           { text: "Export your saved cards as a downloadable file or shareable images" },

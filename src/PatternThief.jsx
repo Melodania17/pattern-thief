@@ -6,9 +6,9 @@ import AuthModal from "./components/AuthModal";
 import UpgradeModal from "./components/UpgradeModal";
 import AccountPanel from "./components/AccountPanel";
 import PatternOfTheDay from "./components/PatternOfTheDay";
-import { THEFT_RADIUS_STOPS, RADIUS_PROMPT_GUIDANCE } from "./lib/buildAData";
+import { THEFT_RADIUS_STOPS, RADIUS_PROMPT_GUIDANCE, DOMAIN_BEHAVIOR_RULES } from "./lib/buildAData";
 
-// ─── DOMAINS (27) ────────────────────────────────────────────────────
+// ─── DOMAINS (28) ────────────────────────────────────────────────────
 const DOMAINS = [
   { id: "nature", label: "Nature & Biomimicry", icon: "🌿", color: "#2d6a4f" },
   { id: "mythology", label: "Mythology & Folklore", icon: "⚡", color: "#c1121f" },
@@ -37,6 +37,7 @@ const DOMAINS = [
   { id: "hobby", label: "Hobby & Enthusiast Communities", icon: "🎨", color: "#00695c" },
   { id: "space", label: "Space & Aviation", icon: "🚀", color: "#283593" },
   { id: "emergency", label: "Emergency & Disaster Response", icon: "🚨", color: "#bf360c" },
+  { id: "business", label: "Business & Strategy", icon: "📊", color: "#2e7d6b" },
 ];
 
 const FEAR_STEPS = [
@@ -99,7 +100,11 @@ const MAX_GLOBAL_HISTORY = 80; // Don't repeat any source that ANY recent user g
 
 function getRandomDomainPriority() {
   const s = [...DOMAINS].sort(() => Math.random() - 0.5);
-  return { full: s.map(d => `${d.id} (${d.label})`).join(", "), mustInclude: s.slice(0, 5).map(d => d.label) };
+  // Business & Strategy is never FORCED via must-include — it only appears when its
+  // strict relevance rule permits (business problem + Near radius). All domains remain
+  // available in the full list; only the mandatory picks exclude it.
+  const mustPool = s.filter(d => d.id !== "business");
+  return { full: s.map(d => `${d.id} (${d.label})`).join(", "), mustInclude: mustPool.slice(0, 5).map(d => d.label) };
 }
 
 function getAvoidList() {
@@ -219,6 +224,7 @@ async function analyzeWithAI(problem, clarifications, radiusKey = "mid") {
       system: `Cross-domain pattern recognition engine. Your job is NOT to generate many cards — your job is to find the FEW BEST cards that will give the user a genuine breakthrough.
 
 ${radiusGuidance}
+${DOMAIN_BEHAVIOR_RULES}
 
 QUALITY BAR — every card MUST meet ALL of these criteria:
 1. DISTANCE (governed by the THEFT RADIUS above): respect the radius instruction for how far from the user's own field to reach. Whatever the radius, never give generic, obvious advice from the user's own field.
@@ -232,7 +238,7 @@ PROCESS:
 VOICE — IMPORTANT:
 - Write the fracture_summary and the_analogy in SECOND PERSON, addressing the user directly. Use "you," "your," "you've," "you asked about..." — never "the user" or "they" or third person. Example: "You asked about retaining engineers — your real challenge is that growth means promotion, but they want creative authority." NOT: "The user is asking about engineer retention. They are facing..."
 - Mirror their words and phrasing back to them.
-2. For each sub-problem, search across these 27 domains (randomized priority): ${full}
+2. For each sub-problem, search across these 28 domains (randomized priority): ${full}
 3. MUST include 2+ cards from: ${mustInclude.join(", ")}.
 4. Generate ONLY 3-4 cards total. Quality beats quantity. If only 3 strong cards exist, return 3.
 
@@ -273,7 +279,7 @@ Rules:
 - Real, verifiable source. No fabrication.
 - The connection to the seed pattern must be genuine and structural, not superficial.
 - Keep the same voice: concrete, second person where natural, no jargon.
-- Search across these 27 domains: ${full}. Prefer: ${mustInclude.join(", ")}.
+- Search across these 28 domains: ${full}. Prefer: ${mustInclude.join(", ")}.
 ${getAvoidList()}
 
 Return JSON only (one card):
@@ -455,7 +461,7 @@ function InfoModal({ onClose }) {
           <p style={{ marginBottom: "16px" }}>
             This tool is not designed to give you answers. It is designed to give you unexpected connections and starting points. Pattern Thief scans{" "}
             <button onClick={() => setShowDomains(!showDomains)} style={{ background: "none", border: "none", padding: 0, fontFamily: "'Lato'", fontSize: "15px", fontWeight: 700, color: "#d4a843", cursor: "pointer", borderBottom: "1px dashed rgba(212,168,67,0.5)" }}>
-              27 domains {showDomains ? "▲" : "▼"}
+              28 domains {showDomains ? "▲" : "▼"}
             </button>
             {" "}to look for unique structural patterns that closely parallel your specific challenge.
           </p>
@@ -1309,7 +1315,7 @@ export default function PatternThief() {
         </div>
       )}
 
-      <div style={{ position: "relative", zIndex: 1, maxWidth: "820px", margin: "0 auto", padding: "40px 20px 80px" }}>
+      <div style={{ position: "relative", zIndex: 1, maxWidth: "820px", margin: "0 auto", padding: "16px 20px 80px" }}>
 
         {/* LANDING */}
         {step === 1 && (
@@ -1375,12 +1381,12 @@ export default function PatternThief() {
               )}
             </div>
             <div style={{ position: "relative", zIndex: 2, animation: "fadeUp 0.8s ease" }}>
-              <h1 style={{ fontFamily: "'Lato'", fontSize: "clamp(42px, 8vw, 72px)", fontWeight: 900, lineHeight: 1.05, marginBottom: "20px", textAlign: "center", color: "#f5f5f5" }}>Pattern Thief</h1>
+              <h1 style={{ fontFamily: "'Lato'", fontSize: "clamp(42px, 8vw, 72px)", fontWeight: 900, lineHeight: 1.05, marginBottom: "14px", marginTop: "4px", textAlign: "center", color: "#f5f5f5" }}>Pattern Thief</h1>
               <p style={{ fontFamily: "'Lato'", fontSize: "18px", fontWeight: 500, color: "rgba(255,255,255,0.92)", textAlign: "center", maxWidth: "560px", margin: "0 auto 10px", lineHeight: 1.5 }}>
                 For the curious, the uninspired, and the digitally trapped.
               </p>
               <p style={{ fontFamily: "'Lato'", fontSize: "15px", fontWeight: 400, color: "#d4a843", textAlign: "center", maxWidth: "540px", margin: "0 auto 30px", lineHeight: 1.6 }}>
-                Not another chatbot surfacing obvious answers. A thinking machine stealing patterns from fields you'd never think to look.
+                Not your generic efficiency engine, but a catalyst for creative disruption and radical discovery.
               </p>
               <div style={{ width: "60px", height: "2px", background: "linear-gradient(90deg, #e8614d, #d4a843, #2a9d8f)", margin: "0 auto 28px" }} />
 
