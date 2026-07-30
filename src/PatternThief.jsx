@@ -6,6 +6,7 @@ import AuthModal from "./components/AuthModal";
 import UpgradeModal from "./components/UpgradeModal";
 import AccountPanel from "./components/AccountPanel";
 import PatternOfTheDay from "./components/PatternOfTheDay";
+import CuriosityConstellation from "./components/CuriosityConstellation";
 import { THEFT_RADIUS_STOPS, RADIUS_PROMPT_GUIDANCE, DOMAIN_BEHAVIOR_RULES } from "./lib/buildAData";
 
 // ─── DOMAINS (28) ────────────────────────────────────────────────────
@@ -530,38 +531,46 @@ function ShareModal({ card, onClose, onImageSaved }) {
   const handleSaveImage = async () => {
     setImageStatus("generating");
     try {
+      // ─── SHARE IMAGE — sparse "Design C": square, domain-color wash ───
       const W = 1080;
-      const H = 1350;
+      const H = 1080;
       const canvas = document.createElement("canvas");
       canvas.width = W;
       canvas.height = H;
       const ctx = canvas.getContext("2d");
 
-      // Background gradient
+      // Dark base
       const bgGrad = ctx.createLinearGradient(0, 0, W, H);
-      bgGrad.addColorStop(0, "#0c0c11");
-      bgGrad.addColorStop(0.5, "#18181f");
-      bgGrad.addColorStop(1, "#14141a");
+      bgGrad.addColorStop(0, "#14141a");
+      bgGrad.addColorStop(1, "#0c0c11");
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, W, H);
 
-      // Subtle radial accents
-      const radial1 = ctx.createRadialGradient(W - 100, 80, 0, W - 100, 80, 280);
-      radial1.addColorStop(0, "rgba(212,168,67,0.10)");
-      radial1.addColorStop(1, "rgba(212,168,67,0)");
-      ctx.fillStyle = radial1;
+      // Domain-colour wash from the top-left
+      const wash = ctx.createRadialGradient(W * 0.22, H * 0.2, 0, W * 0.22, H * 0.2, W * 0.95);
+      wash.addColorStop(0, d.color + "3d");
+      wash.addColorStop(0.55, d.color + "14");
+      wash.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = wash;
       ctx.fillRect(0, 0, W, H);
 
-      const radial2 = ctx.createRadialGradient(80, H - 80, 0, 80, H - 80, 300);
-      radial2.addColorStop(0, "rgba(45,106,79,0.08)");
-      radial2.addColorStop(1, "rgba(45,106,79,0)");
-      ctx.fillStyle = radial2;
-      ctx.fillRect(0, 0, W, H);
+      // Hairline border
+      ctx.strokeStyle = d.color + "40";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(1, 1, W - 2, H - 2);
 
-      // Text wrapping helper
+      // Giant ghosted domain emoji
+      ctx.save();
+      ctx.globalAlpha = 0.13;
+      ctx.font = "300px Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(d.icon, 60, 300);
+      ctx.restore();
+
+      // Wrapping helper (centred)
       const wrapText = (text, maxWidth, fontSpec) => {
         ctx.font = fontSpec;
-        const words = text.split(" ");
+        const words = String(text || "").split(" ");
         const lines = [];
         let current = "";
         for (const w of words) {
@@ -577,133 +586,43 @@ function ShareModal({ card, onClose, onImageSaved }) {
         return lines;
       };
 
-      // Header: brand
-      ctx.fillStyle = "#f5f5f5";
-      ctx.font = "900 36px Lato, Arial, sans-serif";
-      ctx.fillText("Pattern Thief", 80, 100);
+      ctx.textAlign = "center";
+      const CX = W / 2;
+      const MAXW = W - 200;
 
-      ctx.fillStyle = "rgba(255,255,255,0.4)";
-      ctx.font = "400 16px Lato, Arial, sans-serif";
-      ctx.fillText("CROSS-DOMAIN PATTERN RECOGNITION", 80, 132);
+      // Domain pairing header:  SOURCE DOMAIN  →  THEIR PROBLEM AREA
+      const rightSide = (card.sub_problem || "your problem").toString();
+      const rightShort = rightSide.length > 26 ? rightSide.slice(0, 24).trim() + "…" : rightSide;
+      const pairText = `${card.domain_label} → ${rightShort}`.toUpperCase();
+      const titleLines = wrapText(card.source_title, MAXW, "900 68px Lato, Arial, sans-serif");
+      const bodySource = [card.the_pattern, card.the_analogy].filter(Boolean).join(" ");
+      const bodyLines = wrapText(bodySource, MAXW - 60, "400 30px Lato, Arial, sans-serif");
 
-      // Accent line top-right
-      const accentGrad = ctx.createLinearGradient(W - 160, 0, W - 80, 0);
-      accentGrad.addColorStop(0, "#e8614d");
-      accentGrad.addColorStop(0.5, "#d4a843");
-      accentGrad.addColorStop(1, "#2a9d8f");
-      ctx.fillStyle = accentGrad;
-      ctx.beginPath();
-      ctx.roundRect(W - 160, 108, 80, 4, 2);
-      ctx.fill();
+      // Vertically centre the whole block
+      const blockH = 46 + titleLines.length * 82 + 34 + bodyLines.length * 46;
+      let y = (H - blockH) / 2 + 40;
 
-      // Domain badge
-      const domainText = card.domain_label.toUpperCase();
-      ctx.font = "700 20px Lato, Arial, sans-serif";
-      const badgeTextWidth = ctx.measureText(domainText).width;
-      const badgeWidth = badgeTextWidth + 50;
-      ctx.fillStyle = d.color + "59";
-      ctx.beginPath();
-      ctx.roundRect(80, 200, badgeWidth, 48, 8);
-      ctx.fill();
-      ctx.strokeStyle = d.color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.roundRect(80, 200, badgeWidth, 48, 8);
-      ctx.stroke();
+      ctx.fillStyle = d.color;
+      ctx.font = "700 24px Lato, Arial, sans-serif";
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "4px";
+      ctx.fillText(pairText, CX, y);
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+      y += 78;
 
       ctx.fillStyle = "#ffffff";
-      ctx.font = "700 20px Lato, Arial, sans-serif";
-      ctx.fillText(domainText, 100, 232);
+      ctx.font = "900 68px Lato, Arial, sans-serif";
+      titleLines.forEach(line => { ctx.fillText(line, CX, y); y += 82; });
+      y += 18;
 
-      // Large domain emoji on the right — a subtle visual signal of the source domain
-      // Drawn at lower opacity so it doesn't overpower the text
-      ctx.save();
-      ctx.globalAlpha = 0.18;
-      ctx.font = "240px Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif";
-      ctx.textAlign = "right";
-      ctx.fillText(d.icon, W - 60, 280);
-      ctx.restore();
-      ctx.textAlign = "left"; // reset for subsequent text
+      ctx.fillStyle = "rgba(255,255,255,0.66)";
+      ctx.font = "400 30px Lato, Arial, sans-serif";
+      bodyLines.forEach(line => { ctx.fillText(line, CX, y); y += 46; });
 
-      // Source title (large, bold)
-      let y = 320;
-      const sourceLines = wrapText(card.source_title, W - 160, "900 50px Lato, Arial, sans-serif");
-      ctx.fillStyle = "#f5f5f5";
-      ctx.font = "900 50px Lato, Arial, sans-serif";
-      sourceLines.forEach(line => {
-        ctx.fillText(line, 80, y);
-        y += 60;
-      });
-      y += 20;
-
-      // Pattern text
-      const patternLines = wrapText(card.the_pattern, W - 160, "400 26px Lato, Arial, sans-serif");
-      ctx.fillStyle = "rgba(255,255,255,0.72)";
-      ctx.font = "400 26px Lato, Arial, sans-serif";
-      patternLines.forEach(line => {
-        ctx.fillText(line, 80, y);
-        y += 38;
-      });
-      y += 40;
-
-      // Connection section
-      ctx.fillStyle = "#2a9d8f";
-      ctx.font = "700 18px Lato, Arial, sans-serif";
-      ctx.fillText("THE CONNECTION", 80, y);
-      y += 36;
-
-      const connLines = wrapText(card.the_analogy, W - 160, "400 24px Lato, Arial, sans-serif");
-      ctx.fillStyle = "rgba(255,255,255,0.88)";
+      // Footer watermark
+      ctx.fillStyle = "rgba(255,255,255,0.42)";
       ctx.font = "400 24px Lato, Arial, sans-serif";
-      connLines.forEach(line => {
-        ctx.fillText(line, 80, y);
-        y += 36;
-      });
-      y += 30;
-
-      // The Steal box
-      const stealLines = wrapText(card.the_steal, W - 200, "400 24px Lato, Arial, sans-serif");
-      const boxHeight = stealLines.length * 36 + 90;
-      ctx.fillStyle = "rgba(212,168,67,0.07)";
-      ctx.beginPath();
-      ctx.roundRect(60, y, W - 120, boxHeight, 14);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(212,168,67,0.3)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.roundRect(60, y, W - 120, boxHeight, 14);
-      ctx.stroke();
-
-      ctx.fillStyle = "#d4a843";
-      ctx.font = "700 18px Lato, Arial, sans-serif";
-      ctx.fillText("THE STEAL", 80, y + 38);
-
-      ctx.fillStyle = "rgba(255,255,255,0.92)";
-      ctx.font = "400 24px Lato, Arial, sans-serif";
-      let stealY = y + 72;
-      stealLines.forEach(line => {
-        ctx.fillText(line, 80, stealY);
-        stealY += 36;
-      });
-
-      // Footer line
-      ctx.strokeStyle = "rgba(255,255,255,0.08)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(80, H - 100);
-      ctx.lineTo(W - 80, H - 100);
-      ctx.stroke();
-
-      // Footer text
-      ctx.fillStyle = "rgba(255,255,255,0.4)";
-      ctx.font = "400 18px Lato, Arial, sans-serif";
-      ctx.fillText("via PatternThief.com", 80, H - 60);
-
-      ctx.fillStyle = "rgba(212,168,67,0.7)";
-      ctx.font = "700 16px Lato, Arial, sans-serif";
-      const ctaText = "FIND YOUR OWN";
-      const ctaWidth = ctx.measureText(ctaText).width;
-      ctx.fillText(ctaText, W - 80 - ctaWidth, H - 60);
+      ctx.fillText("🗝️  patternthief.com", CX, H - 72);
+      ctx.textAlign = "left";
 
       // Convert canvas to blob and download
       canvas.toBlob(blob => {
@@ -1013,13 +932,22 @@ function LoadingSequence({ text, done }) {
 }
 
 // ─── SAVED CARDS VIEW ────────────────────────────────────────────────
-function SavedCardsView({ savedCards, onGoDeeper, onRemove, onClose, onShare, canGoDeeper, onLockedClick }) {
+function SavedCardsView({ savedCards, onGoDeeper, onRemove, onClose, onShare, canGoDeeper, onLockedClick, constellationUnlocked, onOpenConstellation, unlockThreshold = 10, isPro }) {
   const [exportStatus, setExportStatus] = useState(null);
   return (
     <div style={{ animation: "fadeUp 0.5s ease" }}>
       <button onClick={onClose} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.4)", fontFamily: "'Lato'", fontSize: "13px", cursor: "pointer", marginBottom: "24px", padding: 0 }}>← Back</button>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
         <h2 style={{ fontFamily: "'Lato'", fontSize: "28px", fontWeight: 900, color: "#f5f5f5" }}>Saved Cards</h2>
+        {constellationUnlocked ? (
+          <button onClick={onOpenConstellation} style={{ background: "linear-gradient(135deg, rgba(212,168,67,0.2), rgba(127,119,221,0.16))", border: "1px solid rgba(212,168,67,0.5)", borderRadius: "8px", padding: "7px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "11px", fontWeight: 700, color: "#d4a843", letterSpacing: "0.5px", textTransform: "uppercase", display: "flex", alignItems: "center", gap: "6px", marginLeft: "10px" }}>
+            ✨ Your Constellation
+          </button>
+        ) : (
+          <span title={isPro ? `Save ${Math.max(0, unlockThreshold - savedCards.length)} more to unlock` : "A Pro feature"} style={{ fontFamily: "'Lato'", fontSize: "10px", color: "rgba(255,255,255,0.3)", border: "1px dashed rgba(255,255,255,0.15)", borderRadius: "8px", padding: "7px 12px", marginLeft: "10px", whiteSpace: "nowrap" }}>
+            🔒 Constellation {isPro ? `${savedCards.length}/${unlockThreshold}` : "· Pro"}
+          </span>
+        )}
         {savedCards.length > 0 && (
           <button onClick={() => downloadSavedCards(savedCards, setExportStatus)} style={{
             background: exportStatus ? "rgba(42,157,143,0.15)" : "rgba(255,255,255,0.05)",
@@ -1057,12 +985,17 @@ export default function PatternThief() {
   const [problem, setProblem] = useState("");
   const [clarifyQ, setClarifyQ] = useState([]);
   const [clarifyA, setClarifyA] = useState([]);
+  // Remember what we last analyzed so a radius-only re-run doesn't re-ask questions
+  const [lastAnalyzedPrompt, setLastAnalyzedPrompt] = useState("");
+  const [lastClarifications, setLastClarifications] = useState([]);
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const [cardsVisible, setCardsVisible] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [loadingText, setLoadingText] = useState(null);
   const [loadingDone, setLoadingDone] = useState(false);
+  const [showConstellation, setShowConstellation] = useState(false);
+  const [showUnlockToast, setShowUnlockToast] = useState(false);
   const [deeperCard, setDeeperCard] = useState(null);
   const [rabbitCard, setRabbitCard] = useState(null);    // the result card from a rabbit hole jump
   const [rabbitSeed, setRabbitSeed] = useState(null);    // the card we jumped from
@@ -1091,6 +1024,21 @@ export default function PatternThief() {
   const isProEffective = (userStatus?.is_pro === true) || isPro === true;
   // Allow up to 1 preview attempt beyond the free limit
   const canSearch = isProEffective || effectiveSearchesUsed < searchesAllowed + 1;
+
+  // Curiosity Constellation: Pro-only, unlocks at 10 saved cards.
+  const CONSTELLATION_UNLOCK = 10;
+  const constellationUnlocked = isProEffective && savedCards.length >= CONSTELLATION_UNLOCK;
+
+  // Fire the congratulations toast once, the first time they cross the threshold.
+  useEffect(() => {
+    if (!constellationUnlocked) return;
+    storageGet("constellation-unlock-seen", false).then(seen => {
+      if (!seen) {
+        setShowUnlockToast(true);
+        storageSet("constellation-unlock-seen", true).catch(() => {});
+      }
+    });
+  }, [constellationUnlocked]);
 
   // ---- Auth state subscription ----
   useEffect(() => {
@@ -1226,6 +1174,12 @@ export default function PatternThief() {
     if (!problem.trim()) return;
     if (!canSearch) { setShowUpgrade(true); return; }
     setError(null); setLoadingText("Reviewing your problem"); setStep(2);
+    // If the prompt hasn't changed since the last run (e.g. the user only moved the
+    // theft radius), reuse the answers they already gave and skip the questions.
+    if (problem.trim() && problem.trim() === lastAnalyzedPrompt) {
+      await runAnalysis(lastClarifications);
+      return;
+    }
     try {
       const check = await checkIfNeedsClarification(problem);
       if (check && check.needs_clarification && check.questions?.length) {
@@ -1261,6 +1215,8 @@ export default function PatternThief() {
       setSearchesUsed(newCount);
       storageSet("searches-used", newCount).catch(() => {});
       recordRecentPrompt(problem);
+      setLastAnalyzedPrompt(problem.trim());
+      setLastClarifications(Array.isArray(cl) ? cl : []);
       // Trigger the spiral ball's drop-and-vanish, then reveal results after a short beat
       setLoadingDone(true);
       await new Promise(res => setTimeout(res, 850));
@@ -1286,7 +1242,7 @@ export default function PatternThief() {
     setTimeout(() => setShowUpgrade(false), 1500);
   };
 
-  const handleReset = () => { setStep(1); setProblem(""); setResults(null); setError(null); setCardsVisible(false); setClarifyQ([]); setClarifyA([]); };
+  const handleReset = () => { setStep(1); setProblem(""); setResults(null); setError(null); setCardsVisible(false); setClarifyQ([]); setClarifyA([]); setLastAnalyzedPrompt(""); setLastClarifications([]); };
   const handleRefine = () => { setResults(null); setCardsVisible(false); setClarifyQ([]); setClarifyA([]); setStep(1); };
 
   return (
@@ -1295,6 +1251,22 @@ export default function PatternThief() {
       <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, background: "radial-gradient(ellipse at 30% 20%, rgba(232,97,77,0.04), transparent 50%), radial-gradient(ellipse at 70% 70%, rgba(42,157,143,0.04), transparent 50%), radial-gradient(ellipse at 50% 50%, rgba(212,168,67,0.03), transparent 60%)" }} />
 
       {showInfo && <InfoModal onClose={() => setShowInfo(false)} />}
+      {showConstellation && <CuriosityConstellation savedCards={savedCards} allDomains={DOMAINS} onClose={() => setShowConstellation(false)} />}
+      {showUnlockToast && (
+        <div onClick={() => setShowUnlockToast(false)} style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "linear-gradient(150deg,#1b1726,#101018)", border: "1px solid rgba(212,168,67,0.45)", borderRadius: "18px", padding: "30px 28px", maxWidth: "400px", width: "100%", textAlign: "center" }}>
+            <div style={{ fontSize: "42px", marginBottom: "12px" }}>✨</div>
+            <h3 style={{ fontFamily: "'Lato'", fontSize: "21px", fontWeight: 900, color: "#f5f5f5", margin: "0 0 10px" }}>You've unlocked your Constellation</h3>
+            <p style={{ fontFamily: "'Lato'", fontSize: "13.5px", color: "rgba(255,255,255,0.7)", lineHeight: 1.6, margin: "0 0 20px" }}>
+              Ten steals in. Pattern Thief can now map how you think — which fields you raid, how wide you range, and what you've never touched.
+            </p>
+            <div style={{ display: "flex", gap: "9px" }}>
+              <button onClick={() => { setShowUnlockToast(false); setShowConstellation(true); }} style={{ flex: 1, background: "linear-gradient(135deg,#d4a843,#e8614d)", border: "none", borderRadius: "9px", padding: "12px", color: "#fff", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", cursor: "pointer" }}>See it now</button>
+              <button onClick={() => setShowUnlockToast(false)} style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "9px", padding: "12px 16px", color: "rgba(255,255,255,0.6)", fontFamily: "'Lato'", fontSize: "12px", cursor: "pointer" }}>Later</button>
+            </div>
+          </div>
+        </div>
+      )}
       {deeperCard && <GoDeeperModal card={deeperCard} originalProblem={deeperCard.original_problem || problem} onClose={() => setDeeperCard(null)} isPro={isProEffective} onHitFreeLimit={() => setShowUpgrade(true)} />}
       {(rabbitSeed || rabbitLoading) && <RabbitHoleModal seed={rabbitSeed} card={rabbitCard} loading={rabbitLoading} onClose={() => { setRabbitSeed(null); setRabbitCard(null); }} onGoDeeper={(c) => { setRabbitSeed(null); setDeeperCard(c); }} onDigAgain={handleRabbitHole} onSave={handleSaveCard} isSaved={rabbitCard ? isCardSaved(rabbitCard) : false} canDig={isProEffective || rabbitJumps < FREE_RABBIT_JUMPS} />}
       {shareCard && <ShareModal card={shareCard} onClose={() => setShareCard(null)} onImageSaved={() => { if (!isAuthenticated) setShowSavePrompt(true); }} />}
@@ -1551,7 +1523,7 @@ export default function PatternThief() {
         )}
 
         {/* SAVED CARDS */}
-        {step === 4 && <SavedCardsView savedCards={savedCards} onGoDeeper={setDeeperCard} onRemove={handleRemoveCard} onClose={() => setStep(1)} onShare={setShareCard} canGoDeeper={canSearch} onLockedClick={() => setShowUpgrade(true)} />}
+        {step === 4 && <SavedCardsView savedCards={savedCards} onGoDeeper={setDeeperCard} onRemove={handleRemoveCard} onClose={() => setStep(1)} onShare={setShareCard} canGoDeeper={canSearch} onLockedClick={() => setShowUpgrade(true)} constellationUnlocked={constellationUnlocked} onOpenConstellation={() => setShowConstellation(true)} unlockThreshold={CONSTELLATION_UNLOCK} isPro={isProEffective} />}
 
         {/* FOOTER */}
         <footer style={{ marginTop: "80px", paddingTop: "32px", borderTop: "1px solid rgba(255,255,255,0.06)", textAlign: "center" }}>
