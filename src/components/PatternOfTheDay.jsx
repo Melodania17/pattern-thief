@@ -4,7 +4,7 @@
 // prompt back to the parent so the user can convert the spark into a search.
 
 import React, { useState } from "react";
-import { PATTERN_OF_THE_DAY, getTodaysPatternIndex, formatTodayLabel } from "../lib/buildAData";
+import { PATTERN_OF_THE_DAY, getTodaysPatternIndex, getRerollIndex, formatTodayLabel } from "../lib/patternPool";
 
 // Session-level dismissal: once closed, stays closed for the whole session
 // (survives navigating away from and back to the home page). Resets on full reload.
@@ -20,7 +20,7 @@ export default function PatternOfTheDay({ onExplore }) {
 
   const reroll = () => {
     if (rerolled) return;
-    setIdx((idx + 1) % PATTERN_OF_THE_DAY.length);
+    setIdx(getRerollIndex(idx));
     setRerolled(true);
   };
 
