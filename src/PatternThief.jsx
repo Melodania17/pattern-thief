@@ -531,103 +531,150 @@ function ShareModal({ card, onClose, onImageSaved }) {
   const handleSaveImage = async () => {
     setImageStatus("generating");
     try {
-      // ─── SHARE IMAGE — "Editorial" (Option 2): square, pattern as pull-quote ───
+      // ─── SHARE IMAGE — elegant "Option A refined": Lora serif, framed, two-part ───
+      // Ensure Lora is actually loaded before drawing, or canvas silently falls back.
+      try {
+        if (document.fonts && document.fonts.load) {
+          await Promise.all([
+            document.fonts.load("600 22px Lora"),
+            document.fonts.load("italic 400 13px Lora"),
+            document.fonts.load("700 12px Lora"),
+          ]);
+          await document.fonts.ready;
+        }
+      } catch (e) { /* fall back to serif if loading fails */ }
+
       const W = 1080;
       const H = 1080;
       const canvas = document.createElement("canvas");
       canvas.width = W;
       canvas.height = H;
       const ctx = canvas.getContext("2d");
+      const LORA = "Lora, Georgia, 'Times New Roman', serif";
 
-      // Dark base with a subtle domain-tinted vertical wash
-      const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
-      bgGrad.addColorStop(0, "#0e1512");
-      bgGrad.addColorStop(1, "#0b0b10");
-      ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, 0, W, H);
-      const wash = ctx.createRadialGradient(W * 0.5, H * 0.32, 0, W * 0.5, H * 0.32, W * 0.9);
-      wash.addColorStop(0, d.color + "22");
-      wash.addColorStop(0.6, d.color + "0c");
-      wash.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.fillStyle = wash;
+      // Helper: hex -> rgba string
+      const toRGBA = (hex, a) => {
+        const h = hex.replace("#", "");
+        const r = parseInt(h.substring(0, 2), 16);
+        const g = parseInt(h.substring(2, 4), 16);
+        const b = parseInt(h.substring(4, 6), 16);
+        return `rgba(${r},${g},${b},${a})`;
+      };
+      const dc = (d.color && /^#?[0-9a-fA-F]{6}$/.test(d.color.replace("#", "")) ) ? (d.color[0] === "#" ? d.color : "#" + d.color) : "#d4a843";
+
+      // Background — radial wash in the domain colour from the top
+      const bg = ctx.createRadialGradient(W / 2, 0, 0, W / 2, 0, H * 1.1);
+      bg.addColorStop(0, toRGBA(dc, 0.16));
+      bg.addColorStop(0.45, "#131017");
+      bg.addColorStop(1, "#0b0a0e");
+      ctx.fillStyle = bg;
       ctx.fillRect(0, 0, W, H);
 
-      // Hairline border in the domain colour
-      ctx.strokeStyle = d.color + "3a";
+      // Inset hairline frame (the "framed print" embellishment)
+      const inset = 42;
+      ctx.strokeStyle = toRGBA(dc, 0.30);
       ctx.lineWidth = 2;
-      ctx.strokeRect(1, 1, W - 2, H - 2);
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(inset, inset, W - inset * 2, H - inset * 2, 22); ctx.stroke(); }
+      else ctx.strokeRect(inset, inset, W - inset * 2, H - inset * 2);
 
-      const PAD = 96;
-      const MAXW = W - PAD * 2;
+      const CX = W / 2;
+      const MAXW = W - 240;
+      ctx.textAlign = "center";
 
-      // Centred wrap helper
-      const wrapText = (text, maxWidth, fontSpec) => {
+      const wrap = (text, maxWidth, fontSpec) => {
         ctx.font = fontSpec;
-        const words = String(text || "").split(" ");
+        const words = String(text || "").trim().split(/\s+/);
         const lines = [];
-        let current = "";
+        let cur = "";
         for (const w of words) {
-          const test = current ? current + " " + w : w;
-          if (ctx.measureText(test).width > maxWidth && current) { lines.push(current); current = w; }
-          else current = test;
+          const t = cur ? cur + " " + w : w;
+          if (ctx.measureText(t).width > maxWidth && cur) { lines.push(cur); cur = w; }
+          else cur = t;
         }
-        if (current) lines.push(current);
+        if (cur) lines.push(cur);
         return lines;
       };
+      const firstSentence = (s) => {
+        const str = String(s || "").trim();
+        const m = str.match(/^.*?[.!?](\s|$)/);
+        return (m ? m[0] : str).trim();
+      };
 
-      // Domain emoji, small and centred at the top of the composition
-      ctx.textAlign = "center";
-      const CX = W / 2;
-      ctx.font = "84px Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif";
-      ctx.fillText(d.icon, CX, 250);
+      // ── Domain emoji, centred near the top
+      let y = 150;
+      ctx.font = "72px Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, serif";
+      ctx.fillText(d.icon || "🗝️", CX, y);
+      y += 60;
 
-      // Domain label — its own line, uppercased, NEVER truncated (problem side dropped)
-      ctx.fillStyle = d.color;
-      ctx.font = "700 26px Lato, Arial, sans-serif";
-      if ("letterSpacing" in ctx) ctx.letterSpacing = "3px";
-      const domLines = wrapText(String(card.domain_label || "").toUpperCase(), MAXW, "700 26px Lato, Arial, sans-serif");
-      let dy = 320;
-      domLines.forEach(line => { ctx.fillText(line, CX, dy); dy += 34; });
+      // ── Domain label between two short rules
+      ctx.font = "600 24px " + LORA;
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "6px";
+      const domLabel = String(card.domain_label || "").toUpperCase();
+      ctx.fillStyle = toRGBA(dc, 0.95);
+      const domWidth = Math.min(ctx.measureText(domLabel).width, MAXW);
+      ctx.fillText(domLabel, CX, y);
       if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
-
-      // The pull-quote: prefer the steal (punchy), fall back to the analogy/pattern.
-      const quoteSource = (card.the_steal || card.the_analogy || card.source_title || "").trim();
-      const quote = '\u201C' + quoteSource.replace(/^["\u201C]|["\u201D]$/g, "") + '\u201D';
-      // Fit the quote: shrink font if it would run more than 5 lines
-      let qFont = 60;
-      let quoteLines = wrapText(quote, MAXW, `900 ${qFont}px Lato, Arial, sans-serif`);
-      while (quoteLines.length > 5 && qFont > 42) {
-        qFont -= 4;
-        quoteLines = wrapText(quote, MAXW, `900 ${qFont}px Lato, Arial, sans-serif`);
-      }
-
-      // Short context line: source title (the specific example), trimmed to 2 lines
-      const contextLines = wrapText(card.source_title || "", MAXW, "400 28px Lato, Arial, sans-serif").slice(0, 2);
-
-      // Vertically centre the quote block in the middle band
-      const qLineH = qFont + 14;
-      const blockH = quoteLines.length * qLineH + 30 + contextLines.length * 40;
-      let y = (H - blockH) / 2 + 40;
-
-      ctx.fillStyle = "#ffffff";
-      ctx.font = `900 ${qFont}px Lato, Arial, sans-serif`;
-      quoteLines.forEach(line => { ctx.fillText(line, CX, y); y += qLineH; });
-
-      // small accent rule
-      y += 6;
-      ctx.fillStyle = d.color;
-      ctx.fillRect(CX - 24, y, 48, 3);
+      // rules on each side
+      ctx.strokeStyle = toRGBA(dc, 0.5);
+      ctx.lineWidth = 1.5;
+      const ruleGap = domWidth / 2 + 28;
+      ctx.beginPath(); ctx.moveTo(CX - ruleGap - 34, y - 8); ctx.lineTo(CX - ruleGap, y - 8); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(CX + ruleGap, y - 8); ctx.lineTo(CX + ruleGap + 34, y - 8); ctx.stroke();
       y += 40;
 
-      ctx.fillStyle = "rgba(255,255,255,0.58)";
-      ctx.font = "400 28px Lato, Arial, sans-serif";
-      contextLines.forEach(line => { ctx.fillText(line, CX, y); y += 40; });
+      // ── Italic source line
+      const srcLine = firstSentence(card.source_title || "");
+      ctx.font = "italic 400 26px " + LORA;
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      wrap(srcLine, MAXW, "italic 400 26px " + LORA).slice(0, 2).forEach(line => { ctx.fillText(line, CX, y); y += 34; });
 
-      // Footer — single mark only
-      ctx.fillStyle = "rgba(255,255,255,0.5)";
-      ctx.font = "700 24px Lato, Arial, sans-serif";
+      // ── THE PATTERN (big serif hero) — auto-fit
+      y += 40;
+      const patternText = firstSentence(card.the_pattern || card.the_analogy || "");
+      let pFont = 46;
+      let pLines = wrap(patternText, MAXW, "600 " + pFont + "px " + LORA);
+      while (pLines.length > 4 && pFont > 34) { pFont -= 3; pLines = wrap(patternText, MAXW, "600 " + pFont + "px " + LORA); }
+      ctx.fillStyle = "#fbf6ec";
+      ctx.font = "600 " + pFont + "px " + LORA;
+      const pLineH = pFont + 12;
+      pLines.forEach(line => { ctx.fillText(line, CX, y); y += pLineH; });
+
+      // ── Ornament divider  ——— ✦ ———
+      y += 22;
+      ctx.strokeStyle = toRGBA(dc, 0.55);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(CX - 90, y); ctx.lineTo(CX - 26, y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(CX + 26, y); ctx.lineTo(CX + 90, y); ctx.stroke();
+      ctx.fillStyle = dc;
+      ctx.font = "26px " + LORA;
+      ctx.fillText("\u2726", CX, y + 9);
+      y += 54;
+
+      // ── STEAL IT FOR [problem]  (transfer label)
+      const problemBit = firstSentence(card.sub_problem || card.original_problem || "your problem");
+      const transferLabel = ("Steal it for " + problemBit).toUpperCase();
+      ctx.font = "600 22px " + LORA;
       if ("letterSpacing" in ctx) ctx.letterSpacing = "2px";
-      ctx.fillText("\uD83D\uDDDD\uFE0F  PATTERNTHIEF.COM", CX, H - 84);
+      ctx.fillStyle = toRGBA(dc, 0.92);
+      wrap(transferLabel, MAXW, "600 22px " + LORA).slice(0, 2).forEach(line => { ctx.fillText(line, CX, y); y += 30; });
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+      y += 12;
+
+      // ── The transfer line (the steal, trimmed)
+      const stealText = firstSentence(card.the_steal || "");
+      ctx.font = "400 30px " + LORA;
+      ctx.fillStyle = "rgba(255,255,255,0.84)";
+      let sFont = 30;
+      let sLines = wrap(stealText, MAXW, "400 " + sFont + "px " + LORA);
+      while (sLines.length > 3 && sFont > 22) { sFont -= 2; sLines = wrap(stealText, MAXW, "400 " + sFont + "px " + LORA); }
+      ctx.font = "400 " + sFont + "px " + LORA;
+      sLines.forEach(line => { ctx.fillText(line, CX, y); y += sFont + 10; });
+
+      // ── Footer mark
+      ctx.font = "600 24px " + LORA;
+      if ("letterSpacing" in ctx) ctx.letterSpacing = "3px";
+      ctx.fillStyle = "rgba(255,255,255,0.6)";
+      ctx.fillText("\uD83D\uDDDD\uFE0F  PATTERNTHIEF.COM", CX, H - 78);
       if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
       ctx.textAlign = "left";
 
