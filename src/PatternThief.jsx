@@ -599,6 +599,23 @@ function ShareModal({ card, onClose, onImageSaved }) {
         const m = str.match(/^.*?[.!?](\s|$)/);
         return (m ? m[0] : str).trim();
       };
+      // Hard brevity cap for the card. Long AI sentences (joined by dashes/commas)
+      // are one "sentence" but still too long, so we cap by length and cut at a
+      // natural boundary — a dash, semicolon, or comma — falling back to a word cut.
+      const condense = (s, maxChars) => {
+        let str = firstSentence(s).replace(/\s+/g, " ").trim();
+        if (str.length <= maxChars) return str;
+        // Prefer cutting at an em-dash / en-dash / semicolon before the cap
+        const window = str.slice(0, maxChars);
+        const dash = Math.max(window.lastIndexOf(" — "), window.lastIndexOf(" – "), window.lastIndexOf("; "));
+        if (dash > maxChars * 0.45) return str.slice(0, dash).trim().replace(/[,;:]$/, "") + ".";
+        // else cut at the last comma in-window
+        const comma = window.lastIndexOf(", ");
+        if (comma > maxChars * 0.5) return str.slice(0, comma).trim() + ".";
+        // else cut at the last word boundary
+        const sp = window.lastIndexOf(" ");
+        return str.slice(0, sp > 0 ? sp : maxChars).trim().replace(/[,;:—–-]$/, "") + "…";
+      };
 
       // ── Domain emoji, centred near the top
       let y = 150;
@@ -630,10 +647,10 @@ function ShareModal({ card, onClose, onImageSaved }) {
 
       // ── THE PATTERN (big serif hero) — auto-fit
       y += 40;
-      const patternText = firstSentence(card.the_pattern || card.the_analogy || "");
+      const patternText = condense(card.the_pattern || card.the_analogy || "", 120);
       let pFont = 46;
       let pLines = wrap(patternText, MAXW, "600 " + pFont + "px " + LORA);
-      while (pLines.length > 4 && pFont > 34) { pFont -= 3; pLines = wrap(patternText, MAXW, "600 " + pFont + "px " + LORA); }
+      while (pLines.length > 3 && pFont > 34) { pFont -= 3; pLines = wrap(patternText, MAXW, "600 " + pFont + "px " + LORA); }
       ctx.fillStyle = "#fbf6ec";
       ctx.font = "600 " + pFont + "px " + LORA;
       const pLineH = pFont + 12;
@@ -650,9 +667,9 @@ function ShareModal({ card, onClose, onImageSaved }) {
       ctx.fillText("\u2726", CX, y + 9);
       y += 54;
 
-      // ── STEAL IT FOR [problem]  (transfer label)
-      const problemBit = firstSentence(card.sub_problem || card.original_problem || "your problem");
-      const transferLabel = ("Steal it for " + problemBit).toUpperCase();
+      // ── STEAL IT FOR [problem]  (transfer label — kept short, one line)
+      const problemBit = condense(card.sub_problem || card.original_problem || "your problem", 32);
+      const transferLabel = ("Steal it for " + problemBit).toUpperCase().replace(/[….]$/, "");
       ctx.font = "600 22px " + LORA;
       if ("letterSpacing" in ctx) ctx.letterSpacing = "2px";
       ctx.fillStyle = toRGBA(dc, 0.92);
@@ -661,12 +678,12 @@ function ShareModal({ card, onClose, onImageSaved }) {
       y += 12;
 
       // ── The transfer line (the steal, trimmed)
-      const stealText = firstSentence(card.the_steal || "");
+      const stealText = condense(card.the_steal || "", 135);
       ctx.font = "400 30px " + LORA;
       ctx.fillStyle = "rgba(255,255,255,0.84)";
       let sFont = 30;
       let sLines = wrap(stealText, MAXW, "400 " + sFont + "px " + LORA);
-      while (sLines.length > 3 && sFont > 22) { sFont -= 2; sLines = wrap(stealText, MAXW, "400 " + sFont + "px " + LORA); }
+      while (sLines.length > 2 && sFont > 22) { sFont -= 2; sLines = wrap(stealText, MAXW, "400 " + sFont + "px " + LORA); }
       ctx.font = "400 " + sFont + "px " + LORA;
       sLines.forEach(line => { ctx.fillText(line, CX, y); y += sFont + 10; });
 
