@@ -7,6 +7,7 @@ import UpgradeModal from "./components/UpgradeModal";
 import AccountPanel from "./components/AccountPanel";
 import PatternOfTheDay from "./components/PatternOfTheDay";
 import CuriosityConstellation from "./components/CuriosityConstellation";
+import HomepageSections from "./components/HomepageSections";
 import { THEFT_RADIUS_STOPS, RADIUS_PROMPT_GUIDANCE, DOMAIN_BEHAVIOR_RULES } from "./lib/buildAData";
 
 // ─── DOMAINS (28) ────────────────────────────────────────────────────
@@ -49,7 +50,7 @@ const FEAR_STEPS = [
 ];
 
 const VALID_COUPONS = { "CPSI2026": 5, "THIEF2026": 5 };
-const FREE_LIMIT = 5;
+const FREE_LIMIT = 3;
 
 // Smart chips — starter prompts with teaser patterns
 const STARTER_CHIPS = [
@@ -252,9 +253,12 @@ Field requirements (be concise):
 - the_steal: 1 provocative, concrete sentence proposing what the user could try
 - precedent: a real example of someone applying this in business, or null
 - go_deeper_prompt: 1-sentence AI prompt for deeper exploration
+- share_pattern: a SHORT, COMPLETE, self-contained restatement of the pattern for a share card — max 16 words, one grammatical sentence, no trailing dashes or ellipses, must stand alone and read cleanly. Summarize the core idea; do not just truncate the_pattern.
+- share_steal: a SHORT, COMPLETE, self-contained restatement of the steal for a share card — max 16 words, one grammatical sentence, a clear concrete action, no trailing fragments. Summarize; do not truncate.
+- share_problem: a SHORT noun-phrase label (max 5 words) naming the user's problem area for the line "Steal it for ___". Must be a clean phrase, not a sentence fragment or question (e.g. "your membership drive", "team burnout", "slow product launches").
 
 JSON only (no commentary before or after):
-{"fracture_summary":"...","sub_problems":["..."],"cards":[{"sub_problem":"...","domain":"id","domain_label":"...","source_title":"...","the_pattern":"...","the_analogy":"...","the_steal":"...","precedent":"... or null","go_deeper_prompt":"..."}]}`,
+{"fracture_summary":"...","sub_problems":["..."],"cards":[{"sub_problem":"...","domain":"id","domain_label":"...","source_title":"...","the_pattern":"...","the_analogy":"...","the_steal":"...","precedent":"... or null","go_deeper_prompt":"...","share_pattern":"...","share_steal":"...","share_problem":"..."}]}`,
       messages: [{ role: "user", content: problem + (clarifications?.length ? `\n\nCONTEXT:\n${clarifications.join("\n")}` : "") }] });
   if (r.status === 402) throw new Error("free_limit_reached");
   if (!r.ok) throw new Error(`API ${r.status}`);
@@ -283,8 +287,8 @@ Rules:
 - Search across these 28 domains: ${full}. Prefer: ${mustInclude.join(", ")}.
 ${getAvoidList()}
 
-Return JSON only (one card):
-{"cards":[{"domain":"id","domain_label":"...","source_title":"...","the_pattern":"1-2 sentences","the_analogy":"1 sentence tying it to the SEED pattern","the_steal":"1 concrete provocative sentence","precedent":"real example or null","go_deeper_prompt":"1 sentence"}]}`,
+Return JSON only (one card). Also include share_pattern (≤16 words, complete standalone sentence summarizing the pattern — never truncated), share_steal (≤16 words, complete standalone action), and share_problem (≤5-word clean noun phrase for the problem area):
+{"cards":[{"domain":"id","domain_label":"...","source_title":"...","the_pattern":"1-2 sentences","the_analogy":"1 sentence tying it to the SEED pattern","the_steal":"1 concrete provocative sentence","precedent":"real example or null","go_deeper_prompt":"1 sentence","share_pattern":"...","share_steal":"...","share_problem":"..."}]}`,
       messages: [{ role: "user", content: `SEED PATTERN: ${card.domain_label} — ${card.source_title}\n${card.the_pattern}\nIts steal: ${card.the_steal}\n\nJump to where this pattern leads next.` }] });
   if (r.status === 402) throw new Error("free_limit_reached");
   if (!r.ok) throw new Error(`API ${r.status}`);
@@ -599,22 +603,30 @@ function ShareModal({ card, onClose, onImageSaved }) {
         const m = str.match(/^.*?[.!?](\s|$)/);
         return (m ? m[0] : str).trim();
       };
-      // Hard brevity cap for the card. Long AI sentences (joined by dashes/commas)
-      // are one "sentence" but still too long, so we cap by length and cut at a
-      // natural boundary — a dash, semicolon, or comma — falling back to a word cut.
+      // Fallback for OLD saved cards (no AI short field). Guarantees a complete-reading
+      // result: prefer a whole sentence under the cap; else end on the last clause boundary
+      // BEFORE the cap so it never dangles mid-thought. Only ellipsis if there is no clause
+      // boundary at all (rare), and even then it backs up to a whole word.
       const condense = (s, maxChars) => {
-        let str = firstSentence(s).replace(/\s+/g, " ").trim();
-        if (str.length <= maxChars) return str;
-        // Prefer cutting at an em-dash / en-dash / semicolon before the cap
+        let str = String(s || "").replace(/\s+/g, " ").trim();
+        if (!str) return "";
+        const fs = firstSentence(str);
+        if (fs.length <= maxChars) return fs.replace(/[—–\-,;:]\s*$/, "").trim();
+        // Collect ALL clause boundaries within the cap; take the latest that leaves a
+        // substantial, complete-sounding clause. This avoids ending on "whether you are".
         const window = str.slice(0, maxChars);
-        const dash = Math.max(window.lastIndexOf(" — "), window.lastIndexOf(" – "), window.lastIndexOf("; "));
-        if (dash > maxChars * 0.45) return str.slice(0, dash).trim().replace(/[,;:]$/, "") + ".";
-        // else cut at the last comma in-window
-        const comma = window.lastIndexOf(", ");
-        if (comma > maxChars * 0.5) return str.slice(0, comma).trim() + ".";
-        // else cut at the last word boundary
+        const boundaries = [];
+        const rx = /( — | – |; |: |, )/g;
+        let m;
+        while ((m = rx.exec(window)) !== null) boundaries.push(m.index);
+        if (boundaries.length) {
+          const cut = boundaries[boundaries.length - 1];
+          const out = str.slice(0, cut).trim().replace(/[—–\-,;:]\s*$/, "");
+          // Only accept if it's a meaningful length; otherwise fall through to word-cut.
+          if (out.length >= Math.min(40, maxChars * 0.5)) return out + ".";
+        }
         const sp = window.lastIndexOf(" ");
-        return str.slice(0, sp > 0 ? sp : maxChars).trim().replace(/[,;:—–-]$/, "") + "…";
+        return str.slice(0, sp > 0 ? sp : maxChars).trim().replace(/[—–\-,;:]\s*$/, "") + "…";
       };
 
       // ── Domain emoji, centred near the top
@@ -647,7 +659,9 @@ function ShareModal({ card, onClose, onImageSaved }) {
 
       // ── THE PATTERN (big serif hero) — auto-fit
       y += 40;
-      const patternText = condense(card.the_pattern || card.the_analogy || "", 120);
+      const patternText = card.share_pattern
+        ? String(card.share_pattern).trim()
+        : condense(card.the_pattern || card.the_analogy || "", 120);
       let pFont = 46;
       let pLines = wrap(patternText, MAXW, "600 " + pFont + "px " + LORA);
       while (pLines.length > 3 && pFont > 34) { pFont -= 3; pLines = wrap(patternText, MAXW, "600 " + pFont + "px " + LORA); }
@@ -668,7 +682,9 @@ function ShareModal({ card, onClose, onImageSaved }) {
       y += 54;
 
       // ── STEAL IT FOR [problem]  (transfer label — kept short, one line)
-      const problemBit = condense(card.sub_problem || card.original_problem || "your problem", 32);
+      const problemBit = card.share_problem
+        ? String(card.share_problem).trim()
+        : condense(card.sub_problem || card.original_problem || "your problem", 32);
       const transferLabel = ("Steal it for " + problemBit).toUpperCase().replace(/[….]$/, "");
       ctx.font = "600 22px " + LORA;
       if ("letterSpacing" in ctx) ctx.letterSpacing = "2px";
@@ -678,7 +694,9 @@ function ShareModal({ card, onClose, onImageSaved }) {
       y += 12;
 
       // ── The transfer line (the steal, trimmed)
-      const stealText = condense(card.the_steal || "", 135);
+      const stealText = card.share_steal
+        ? String(card.share_steal).trim()
+        : condense(card.the_steal || "", 135);
       ctx.font = "400 30px " + LORA;
       ctx.fillStyle = "rgba(255,255,255,0.84)";
       let sFont = 30;
@@ -1082,6 +1100,11 @@ export default function PatternThief() {
   const [authUser, setAuthUser] = useState(null);
   const [userStatus, setUserStatus] = useState(null);
   const [showAuth, setShowAuth] = useState(false);
+  // Number of anonymous searches allowed before an email signup is required.
+  // 1 = they get one free search, then must sign up on their second prompt.
+  const SIGNUP_AFTER_SEARCHES = 1;
+  const [pendingSearch, setPendingSearch] = useState(false);
+  const resumeSearchRef = useRef(null);
   const [authContext, setAuthContext] = useState("default");
   const [showAccount, setShowAccount] = useState(false);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
@@ -1126,6 +1149,11 @@ export default function PatternThief() {
         setAuthUser(user);
         if (user && event === "SIGNED_IN") {
           await migrateAnonymousCardsIfNeeded();
+          // If they were gated mid-search, close the modal and continue automatically.
+          setPendingSearch(prev => {
+            if (prev) { setShowAuth(false); setTimeout(() => { resumeSearchRef.current && resumeSearchRef.current(); }, 300); }
+            return false;
+          });
         }
         const s = await fetchUserStatus();
         if (s) setUserStatus(s);
@@ -1241,9 +1269,20 @@ export default function PatternThief() {
     setShowAuth(true);
   };
 
+  // Keep a live reference so the auth flow can resume the gated search after sign-in.
+  useEffect(() => { resumeSearchRef.current = () => { handleSubmit(); }; });
+
   const handleSubmit = async () => {
     if (!problem.trim()) return;
     if (!canSearch) { setShowUpgrade(true); return; }
+    // EMAIL GATE: from the SECOND search onward, an unauthenticated user must sign up.
+    // Fires before any analysis runs, so no results are shown until they've signed up.
+    if (!isAuthenticated && !isProEffective && searchesUsed >= SIGNUP_AFTER_SEARCHES) {
+      setPendingSearch(true);
+      setAuthContext("continue_free");
+      setShowAuth(true);
+      return;
+    }
     setError(null); setLoadingText("Reviewing your problem"); setStep(2);
     // If the prompt hasn't changed since the last run (e.g. the user only moved the
     // theft radius), reuse the answers they already gave and skip the questions.
@@ -1342,7 +1381,7 @@ export default function PatternThief() {
       {(rabbitSeed || rabbitLoading) && <RabbitHoleModal seed={rabbitSeed} card={rabbitCard} loading={rabbitLoading} onClose={() => { setRabbitSeed(null); setRabbitCard(null); }} onGoDeeper={(c) => { setRabbitSeed(null); setDeeperCard(c); }} onDigAgain={handleRabbitHole} onSave={handleSaveCard} isSaved={rabbitCard ? isCardSaved(rabbitCard) : false} canDig={isProEffective || rabbitJumps < FREE_RABBIT_JUMPS} />}
       {shareCard && <ShareModal card={shareCard} onClose={() => setShareCard(null)} onImageSaved={() => { if (!isAuthenticated) setShowSavePrompt(true); }} />}
       {showUpgrade && <UpgradeModal onClose={() => setShowUpgrade(false)} userStatus={userStatus} isAuthenticated={isAuthenticated} onRequestAuth={handleRequestAuth} onPurchaseSuccess={refreshUserStatus} />}
-      {showAuth && <AuthModal onClose={() => setShowAuth(false)} context={authContext} />}
+      {showAuth && <AuthModal onClose={() => { setShowAuth(false); setPendingSearch(false); }} context={authContext} />}
       {showAccount && <AccountPanel onClose={() => setShowAccount(false)} userStatus={userStatus} onStatusChange={refreshUserStatus} />}
       {showSavePrompt && !isAuthenticated && (
         <div onClick={() => setShowSavePrompt(false)} style={{ position: "fixed", bottom: "20px", left: "50%", transform: "translateX(-50%)", zIndex: 900, background: "linear-gradient(135deg, rgba(212,168,67,0.15), rgba(42,157,143,0.1))", border: "1px solid rgba(212,168,67,0.4)", borderRadius: "14px", padding: "14px 18px", maxWidth: "440px", width: "calc(100% - 40px)", backdropFilter: "blur(10px)", boxShadow: "0 12px 40px rgba(0,0,0,0.5)", cursor: "pointer" }}>
@@ -1364,14 +1403,9 @@ export default function PatternThief() {
         {step === 1 && (
           <div style={{ position: "relative", minHeight: "80vh", display: "flex", flexDirection: "column", justifyContent: "center" }}>
             <FloatingIcons />
-            {/* TOP BAR: How It Works + Saved + Upgrade + Account/Sign-in */}
-            <div style={{ position: "relative", zIndex: 5, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px", marginBottom: "12px", flexWrap: "wrap" }}>
-              {/* LEFT: How It Works */}
-              <button onClick={() => setShowInfo(true)} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "18px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Lato'", fontSize: "12px", fontWeight: 700, color: "rgba(255,255,255,0.55)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s", whiteSpace: "nowrap" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(212,168,67,0.5)"; e.currentTarget.style.color = "#d4a843"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.55)"; }}>
-                How It Works
-              </button>
+            {/* TOP BAR: Saved + Upgrade + Account/Sign-in
+                (How It Works tab removed — its content now lives in the page sections below) */}
+            <div style={{ position: "relative", zIndex: 5, display: "flex", justifyContent: "flex-end", alignItems: "flex-start", gap: "8px", marginBottom: "12px", flexWrap: "wrap" }}>
 
               {/* RIGHT: Saved + Upgrade + Account */}
               <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -1426,17 +1460,12 @@ export default function PatternThief() {
             <div style={{ position: "relative", zIndex: 2, animation: "fadeUp 0.8s ease" }}>
               <h1 style={{ fontFamily: "'Lato'", fontSize: "clamp(42px, 8vw, 72px)", fontWeight: 900, lineHeight: 1.05, marginBottom: "14px", marginTop: "4px", textAlign: "center", color: "#f5f5f5" }}>Pattern Thief</h1>
               <p style={{ fontFamily: "'Lato'", fontSize: "18px", fontWeight: 500, color: "rgba(255,255,255,0.92)", textAlign: "center", maxWidth: "560px", margin: "0 auto 10px", lineHeight: 1.5 }}>
-                For the curious, the uninspired, and the digitally trapped.
+                For the curious, the cognitively inclined, and the digitally trapped.
               </p>
               <p style={{ fontFamily: "'Lato'", fontSize: "15px", fontWeight: 400, color: "#d4a843", textAlign: "center", maxWidth: "540px", margin: "0 auto 30px", lineHeight: 1.6 }}>
                 Not your generic efficiency engine, but a catalyst for creative disruption and radical discovery.
               </p>
               <div style={{ width: "60px", height: "2px", background: "linear-gradient(90deg, #e8614d, #d4a843, #2a9d8f)", margin: "0 auto 28px" }} />
-
-              {/* PATTERN OF THE DAY — slim daily hook */}
-              <div style={{ marginBottom: "20px" }}>
-                <PatternOfTheDay onExplore={() => { document.querySelector("#pt-problem-input")?.scrollIntoView({ behavior: "smooth", block: "center" }); document.querySelector("#pt-problem-input")?.focus(); }} />
-              </div>
 
               {/* INPUT BOX — primary action, now directly after Pattern of the Day */}
               <div style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "20px", padding: "28px", backdropFilter: "blur(12px)" }}>
@@ -1512,6 +1541,21 @@ export default function PatternThief() {
                 ))}
               </div>
             </div>
+
+            {/* PATTERN OF THE DAY — now sits directly below the prompt box */}
+            <div style={{ marginTop: "22px" }}>
+              <PatternOfTheDay onExplore={() => { document.querySelector("#pt-problem-input")?.scrollIntoView({ behavior: "smooth", block: "center" }); document.querySelector("#pt-problem-input")?.focus(); }} />
+            </div>
+
+            {/* HOMEPAGE EXPLAINER SECTIONS — for first-time visitors */}
+            <HomepageSections
+              onPickExample={(text) => { setProblem(text); }}
+              onScrollToTop={() => {
+                const el = document.querySelector("#pt-problem-input");
+                if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => el.focus(), 500); }
+                else window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
           </div>
         )}
 

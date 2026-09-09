@@ -15,6 +15,7 @@ export default function AuthModal({ onClose, context = "default" }) {
     coupon: "Sign in to redeem your code",
     save: "Sign in to save your cards forever",
     refund: "Sign in to your account",
+    continue_free: "Sign up with your email to continue — free",
   };
   const subtexts = {
     default: "We use magic links — no passwords to remember.",
@@ -22,6 +23,7 @@ export default function AuthModal({ onClose, context = "default" }) {
     coupon: "Workshop codes are tied to your account so your benefits never get lost.",
     save: "Your saved cards will sync across all your devices. No spam, ever.",
     refund: "Sign in to manage your account and process refunds.",
+    continue_free: "You've used your first free search. Add your email to unlock the rest — no password, no spam. We'll pick up right where you left off.",
   };
 
   const handleEmail = async () => {

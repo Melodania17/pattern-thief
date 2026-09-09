@@ -10,7 +10,7 @@
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 
-const FREE_LIMIT = 5;
+const FREE_LIMIT = 3;
 const PREVIEW_LIMIT = 1;
 const MONTHLY_SOFT_CAP = 300;
 
